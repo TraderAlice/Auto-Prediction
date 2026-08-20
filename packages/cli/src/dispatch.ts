@@ -14,6 +14,8 @@ export const SUPPORTED_COMMANDS = Object.freeze([
   "agent target inspect <target-id>",
   "agent task inspect <task-id>",
   "agent task preview <task-id> <execution-profile-id>",
+  "agent task execute <task-id> <execution-profile-id> <preview-ref> <authorization-ref>",
+  "agent run inspect <run-id>",
   "venue list",
   "venue inspect <venue-id>",
 ] as const);
@@ -59,6 +61,18 @@ const COMMAND_CATALOG = Object.freeze([
     command: "agent task preview <task-id> <execution-profile-id>",
     kind: "CONTROL_PLANE_PREVIEW",
     description: "Preview a manual Agent run without creating a run or calling a model.",
+    requiresControlPlane: true,
+  }),
+  Object.freeze({
+    command: "agent task execute <task-id> <execution-profile-id> <preview-ref> <authorization-ref>",
+    kind: "CONTROL_PLANE_RESEARCH_DISPATCH",
+    description: "Dispatch or reuse a preview-bound manual research run. This is not live trading.",
+    requiresControlPlane: true,
+  }),
+  Object.freeze({
+    command: "agent run inspect <run-id>",
+    kind: "CONTROL_PLANE_READ",
+    description: "Inspect one Agent run and only the records bound to that run.",
     requiresControlPlane: true,
   }),
   Object.freeze({
@@ -112,6 +126,50 @@ function invalidIdentityEnvelope(
     allowedNextActions: ["agent workspace", "help"],
     ok: false,
   });
+}
+
+function invalidAuthorizationEnvelope(
+  command: string,
+  args: readonly string[],
+): CliEnvelope {
+  return createCliEnvelope({
+    command,
+    arguments: args,
+    state: null,
+    diagnostics: [{
+      severity: "ERROR",
+      code: "CLI_ARGUMENT_INVALID",
+      message: "authorization-ref must be a bounded nonblank identifier.",
+    }],
+    allowedNextActions: ["agent workspace", "help"],
+    ok: false,
+  });
+}
+
+function authorizationRefValue(value: string): boolean {
+  return value.trim() === value &&
+    /^[a-zA-Z0-9][a-zA-Z0-9._:/-]{0,159}$/u.test(value);
+}
+
+function integerValue(value: unknown): number | null {
+  return typeof value === "number" && Number.isInteger(value) ? value : null;
+}
+
+function hasFalseTradingBoundary(value: JsonObject): boolean {
+  return hasLiteralFalseAuthority(value, [
+    "tradingExecutionAuthority",
+    "externalWriteAuthority",
+    "valueMovingAuthority",
+    "liveExecutionEnabled",
+  ]);
+}
+
+function previewExecuteCommand(
+  taskId: string,
+  executionProfileId: string,
+  previewRef: string,
+): string {
+  return `agent task execute ${taskId} ${executionProfileId} ${previewRef} external-agent:${previewRef}`;
 }
 
 function malformedControlPlaneEnvelope(
@@ -271,6 +329,50 @@ function validateAgentOperatorTask(value: unknown, taskId: string) {
   });
 }
 
+function validateManualRunBinding(
+  value: unknown,
+  taskId: string,
+  executionProfileId: string,
+  taskPayloadHash: string | null,
+  nextRunOrdinal: number | null,
+) {
+  const binding = objectValue(value);
+  const budget = objectValue(binding?.runBudget);
+  const previewRef = stringValue(binding?.previewRef);
+  const revision = integerValue(binding?.executionProfileRevision);
+  const boundOrdinal = integerValue(binding?.nextRunOrdinal);
+  if (
+    binding?.schemaVersion !== "pmh.agent-manual-run-preview-binding.v1" ||
+    previewRef === null ||
+    !hashValue(previewRef) ||
+    binding.taskId !== taskId ||
+    typeof binding.taskPayloadHash !== "string" ||
+    !hashValue(binding.taskPayloadHash) ||
+    (taskPayloadHash !== null && binding.taskPayloadHash !== taskPayloadHash) ||
+    binding.executionProfileId !== executionProfileId ||
+    revision === null ||
+    revision < 1 ||
+    boundOrdinal === null ||
+    boundOrdinal < 1 ||
+    (nextRunOrdinal !== null && boundOrdinal !== nextRunOrdinal) ||
+    budget === null ||
+    (integerValue(budget.maximumModelInvocations) ?? 0) < 1 ||
+    (integerValue(budget.maximumToolCalls) ?? 0) < 1 ||
+    (integerValue(budget.maximumWallClockMs) ?? 0) < 1 ||
+    !(
+      budget.maximumInputTokens === null ||
+      (typeof budget.maximumInputTokens === "string" &&
+        /^\d+$/u.test(budget.maximumInputTokens))
+    ) ||
+    !(
+      budget.maximumOutputTokens === null ||
+      (typeof budget.maximumOutputTokens === "string" &&
+        /^\d+$/u.test(budget.maximumOutputTokens))
+    )
+  ) return null;
+  return Object.freeze({ binding, previewRef, taskPayloadHash: binding.taskPayloadHash });
+}
+
 function validateManualRunPreview(
   value: unknown,
   taskId: string,
@@ -281,30 +383,215 @@ function validateManualRunPreview(
   const task = objectValue(preview?.task);
   const executionProfile = objectValue(preview?.executionProfile);
   const authority = objectValue(task?.authority);
+  const taskPayloadHash = stringValue(task?.taskPayloadHash);
+  const nextRunOrdinal = integerValue(preview?.nextRunOrdinal);
+  const bound = validateManualRunBinding(
+    document?.binding,
+    taskId,
+    executionProfileId,
+    taskPayloadHash,
+    nextRunOrdinal,
+  );
+  const budget = objectValue(bound?.binding.runBudget);
   if (
     document?.ok !== true ||
+    document.mode !== "PREVIEW" ||
     document.run !== undefined ||
     preview === null ||
     task?.schemaVersion !== "pmh.agent-task.v1" ||
     task.taskId !== taskId ||
     executionProfile?.schemaVersion !== "pmh.execution-profile.v1" ||
     executionProfile.executionProfileId !== executionProfileId ||
+    (integerValue(executionProfile.revision) !== null &&
+      integerValue(executionProfile.revision) !==
+        integerValue(bound?.binding.executionProfileRevision)) ||
     preview.providerRequestsStarted !== 0 ||
     document.providerRequestsStarted !== 0 ||
     document.modelInvocationsStarted !== 0 ||
     document.writesStarted !== 0 ||
     document.runsCreated !== 0 ||
     document.executionAuthority !== false ||
-    document.externalWriteAuthority !== false ||
-    document.valueMovingAuthority !== false ||
+    document.researchRunDispatchAuthorityConsumed !== false ||
+    document.providerOrModelWorkMayStart !== false ||
+    !hasFalseTradingBoundary(document) ||
     authority?.modelInvocations !== false ||
     authority.externalWrites !== false ||
     authority.semanticDecision !== false ||
     authority.certificatePublication !== false ||
     authority.valueMovingActions !== false ||
-    document.mode !== "PREVIEW"
+    bound === null ||
+    budget === null ||
+    (integerValue(preview.maximumModelInvocations) !== null &&
+      integerValue(preview.maximumModelInvocations) !==
+        integerValue(budget.maximumModelInvocations))
   ) return null;
-  return Object.freeze({ document, preview, task, executionProfile });
+  return Object.freeze({
+    document,
+    preview,
+    task,
+    executionProfile,
+    binding: bound.binding,
+    previewRef: bound.previewRef,
+  });
+}
+
+function validateManualRun(value: unknown, taskId: string, executionProfileId: string) {
+  const run = objectValue(value);
+  const authorization = objectValue(run?.authorization);
+  const runId = stringValue(run?.runId);
+  if (
+    run?.schemaVersion !== "pmh.agent-run.v1" ||
+    runId === null ||
+    !hashValue(runId) ||
+    run.taskId !== taskId ||
+    run.executionProfileId !== executionProfileId ||
+    authorization?.kind !== "MANUAL" ||
+    typeof authorization.authorizationRef !== "string" ||
+    run.externalWriteAuthority !== false ||
+    run.valueMovingAuthority !== false
+  ) return null;
+  return Object.freeze({ run, runId, authorizationRef: authorization.authorizationRef });
+}
+
+function validateManualRunExecute(
+  value: unknown,
+  status: number,
+  taskId: string,
+  executionProfileId: string,
+  previewRef: string,
+  authorizationRef: string,
+) {
+  const document = objectValue(value);
+  const validatedRun = validateManualRun(document?.run, taskId, executionProfileId);
+  if (
+    document?.ok !== true ||
+    document.mode !== "EXECUTE" ||
+    document.previewRef !== previewRef ||
+    validatedRun === null ||
+    validatedRun.authorizationRef !== authorizationRef ||
+    !hasLiteralFalseAuthority(document, [
+      "semanticDecisionAuthority",
+      "certificateAuthority",
+    ]) ||
+    !hasFalseTradingBoundary(document)
+  ) return null;
+  if (document.reused === true) {
+    if (
+      status !== 200 ||
+      document.dispatchStartedByRequest !== false ||
+      document.runCreatedByRequest !== false ||
+      document.executionAuthority !== false ||
+      document.researchRunDispatchAuthorityConsumed !== false ||
+      document.providerOrModelWorkMayStart !== false
+    ) return null;
+    return Object.freeze({ document, run: validatedRun.run, runId: validatedRun.runId, reused: true as const });
+  }
+  if (document.reused !== false) return null;
+  const bound = validateManualRunBinding(
+    document.binding,
+    taskId,
+    executionProfileId,
+    null,
+    integerValue(objectValue(document.preview)?.nextRunOrdinal),
+  );
+  if (
+    status !== 202 ||
+    document.dispatchStartedByRequest !== true ||
+    document.runCreatedByRequest !== true ||
+    document.executionAuthority !== true ||
+    document.researchRunDispatchAuthorityConsumed !== true ||
+    document.providerOrModelWorkMayStart !== true ||
+    bound === null ||
+    bound.previewRef !== previewRef
+  ) return null;
+  return Object.freeze({
+    document,
+    run: validatedRun.run,
+    runId: validatedRun.runId,
+    reused: false as const,
+  });
+}
+
+function runBoundCollection(
+  document: JsonObject,
+  itemsKey: string,
+  countKey: string,
+  truncatedKey: string,
+  runId: string,
+): boolean {
+  const items = document[itemsKey];
+  const count = integerValue(document[countKey]);
+  const truncated = document[truncatedKey];
+  if (!Array.isArray(items) || items.length > 32 || count === null || count < items.length ||
+      typeof truncated !== "boolean") {
+    return false;
+  }
+  if (truncated ? count <= items.length : count !== items.length) return false;
+  return items.every((item) => {
+    const record = objectValue(item);
+    if (record?.runId !== runId) return false;
+    for (const authority of [
+      "semanticDecisionAuthority",
+      "certificateAuthority",
+      "externalWriteAuthority",
+      "valueMovingAuthority",
+    ]) {
+      if (authority in record && record[authority] !== false) return false;
+    }
+    return !("responseStorage" in record && record.responseStorage !== false);
+  });
+}
+
+function validateAgentOperatorRun(value: unknown, runId: string) {
+  const document = objectValue(value);
+  const run = objectValue(document?.run);
+  const task = objectValue(document?.task);
+  const executionProfile = objectValue(document?.executionProfile);
+  const status = stringValue(run?.status);
+  if (
+    document?.schemaVersion !== "pmh.agent-operator-run.v1" ||
+    run?.schemaVersion !== "pmh.agent-run.v1" ||
+    run.runId !== runId ||
+    run.externalWriteAuthority !== false ||
+    run.valueMovingAuthority !== false ||
+    task === null ||
+    executionProfile === null ||
+    task.taskId !== run.taskId ||
+    typeof task.taskPayloadHash !== "string" ||
+    !hashValue(task.taskPayloadHash) ||
+    typeof run.taskId !== "string" ||
+    !hashValue(run.taskId) ||
+    executionProfile.executionProfileId !== run.executionProfileId ||
+    (integerValue(executionProfile.revision) ?? 0) < 1 ||
+    typeof run.executionProfileId !== "string" ||
+    !hashValue(run.executionProfileId) ||
+    status === null ||
+    !["PREPARED", "INTERRUPTED", "SUCCEEDED", "FAILED", "CANCELLED"].includes(status) ||
+    !hasZeroOperatorReadEffects(document) ||
+    document.liveExecutionEnabled !== false ||
+    document.tradingExecutionAuthority !== false ||
+    !runBoundCollection(
+      document, "modelInvocations", "modelInvocationCount", "modelInvocationsTruncated", runId,
+    ) ||
+    !runBoundCollection(
+      document, "toolEffects", "toolEffectCount", "toolEffectsTruncated", runId,
+    ) ||
+    !runBoundCollection(
+      document, "artifacts", "artifactCount", "artifactsTruncated", runId,
+    ) ||
+    !runBoundCollection(
+      document, "annotations", "annotationCount", "annotationsTruncated", runId,
+    ) ||
+    !runBoundCollection(
+      document, "resultSelections", "resultSelectionCount", "resultSelectionsTruncated", runId,
+    )
+  ) return null;
+  return Object.freeze({
+    document,
+    run,
+    taskId: run.taskId,
+    status,
+  });
 }
 
 function validateAgentOperatorWorkspace(value: unknown) {
@@ -643,15 +930,22 @@ export async function runCli(
           ok: true as const,
           controlPlaneUrl: result.baseUrl,
           preview: previewed.preview,
+          binding: previewed.binding,
+          previewRef: previewed.previewRef,
           providerRequestsStarted: 0 as const,
           modelInvocationsStarted: 0 as const,
           writesStarted: 0 as const,
           runsCreated: 0 as const,
           executionAuthority: false as const,
+          researchRunDispatchAuthorityConsumed: false as const,
+          providerOrModelWorkMayStart: false as const,
+          tradingExecutionAuthority: false as const,
           externalWriteAuthority: false as const,
           valueMovingAuthority: false as const,
+          liveExecutionEnabled: false as const,
         }),
         allowedNextActions: Object.freeze([
+          previewExecuteCommand(taskId, executionProfileId, previewed.previewRef),
           `agent task inspect ${taskId}`,
           "agent workspace",
           "help",
@@ -663,6 +957,117 @@ export async function runCli(
         taskId,
         executionProfileId,
       ]);
+    }
+  }
+
+  if (
+    namespace === "agent" &&
+    action === "task" &&
+    venueId === "execute" &&
+    extra.length === 4 &&
+    extra[0] !== undefined &&
+    extra[1] !== undefined &&
+    extra[2] !== undefined &&
+    extra[3] !== undefined
+  ) {
+    const taskId = extra[0];
+    const executionProfileId = extra[1];
+    const previewRef = extra[2];
+    const authorizationRef = extra[3];
+    const args = [taskId, executionProfileId, previewRef, authorizationRef] as const;
+    if (!hashValue(taskId) || !hashValue(executionProfileId) || !hashValue(previewRef)) {
+      return invalidIdentityEnvelope(
+        "agent.task.execute",
+        args,
+        !hashValue(taskId)
+          ? "task-id"
+          : !hashValue(executionProfileId)
+            ? "execution-profile-id"
+            : "preview-ref",
+      );
+    }
+    if (!authorizationRefValue(authorizationRef)) {
+      return invalidAuthorizationEnvelope("agent.task.execute", args);
+    }
+    const path = `/api/v1/agent-tasks/${taskId}/runs` as `/${string}`;
+    try {
+      const result = await requestControlPlaneJson(path, {
+        ...options,
+        method: "POST",
+        acceptedStatuses: Object.freeze([200, 202]),
+        body: Object.freeze({
+          mode: "EXECUTE",
+          executionProfileId,
+          previewRef,
+          authorizationRef,
+        }),
+      });
+      const executed = validateManualRunExecute(
+        result.value,
+        result.status,
+        taskId,
+        executionProfileId,
+        previewRef,
+        authorizationRef,
+      );
+      if (executed === null) {
+        return malformedControlPlaneEnvelope("agent.task.execute", path, args);
+      }
+      return createCliEnvelope({
+        command: "agent.task.execute",
+        arguments: args,
+        state: Object.freeze({
+          ...executed.document,
+          controlPlaneUrl: result.baseUrl,
+        }),
+        allowedNextActions: Object.freeze([
+          `agent run inspect ${executed.runId}`,
+          "agent workspace",
+          "help",
+        ]),
+        ok: true,
+      });
+    } catch (error) {
+      return controlPlaneFailure("agent.task.execute", error, args);
+    }
+  }
+
+  if (
+    namespace === "agent" &&
+    action === "run" &&
+    venueId === "inspect" &&
+    extra.length === 1 &&
+    extra[0] !== undefined
+  ) {
+    const runId = extra[0];
+    if (!hashValue(runId)) {
+      return invalidIdentityEnvelope("agent.run.inspect", [runId], "run-id");
+    }
+    const path = `/api/v1/agent-operator/runs/${runId}` as `/${string}`;
+    try {
+      const result = await requestControlPlaneJson(path, options);
+      const inspected = validateAgentOperatorRun(result.value, runId);
+      if (inspected === null) {
+        return malformedControlPlaneEnvelope("agent.run.inspect", path, [runId]);
+      }
+      return createCliEnvelope({
+        command: "agent.run.inspect",
+        arguments: [runId],
+        state: Object.freeze({
+          ...inspected.document,
+          controlPlaneUrl: result.baseUrl,
+        }),
+        allowedNextActions: inspected.status === "PREPARED"
+          ? Object.freeze([`agent run inspect ${runId}`])
+          : Object.freeze([
+              `agent task inspect ${inspected.taskId}`,
+              "agent workspace",
+              "help",
+            ]),
+        ok: true,
+      });
+    } catch (error) {
+      return controlPlaneFailure("agent.run.inspect", error, [runId]);
     }
   }
 

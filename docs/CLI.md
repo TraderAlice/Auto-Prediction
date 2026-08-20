@@ -25,6 +25,8 @@ pnpm --silent pmh agent workspace
 pnpm --silent pmh agent target inspect <target-id>
 pnpm --silent pmh agent task inspect <task-id>
 pnpm --silent pmh agent task preview <task-id> <execution-profile-id>
+pnpm --silent pmh agent task execute <task-id> <execution-profile-id> <preview-ref> <authorization-ref>
+pnpm --silent pmh agent run inspect <run-id>
 pnpm --silent pmh venue list
 pnpm --silent pmh venue inspect <venue-id>
 ```
@@ -47,14 +49,29 @@ preview action.
 `agent task preview` posts `mode: PREVIEW` to the first-party manual-run route.
 The response binds the requested task and profile identities and explicitly
 reports zero provider requests, model invocations, writes, and created runs.
-It grants no execution authority and deliberately does not advertise an
-execute command. This makes the current machine journey:
+It grants no execution authority. The response supplies a content-addressed
+`previewRef` and the exact execute command. The suggested authorization ref is
+`external-agent:<previewRef>`: it is an idempotency key, not trading authority.
+
+`agent task execute` accepts only that exact task/profile/preview binding. A
+first request creates one research run and may start provider/model work; a
+retry with the same authorization ref returns the same retained run without
+starting duplicate work. Reusing an authorization ref for any other binding
+fails closed. Every response keeps trading, external-write, value-moving, and
+live-execution authority literal `false`.
+
+`agent run inspect` returns one exact run plus bounded, run-bound invocation,
+tool-effect, artifact, annotation, and result-selection collections. A prepared
+run advertises the same inspect command for polling; a terminal run points back
+to its task and workspace. This makes the current machine journey:
 
 ```text
 agent workspace
   -> agent target inspect <exact-target-id>
   -> agent task inspect <exact-task-id>
   -> agent task preview <exact-task-id> <exact-profile-id>
+  -> agent task execute <exact-task-id> <exact-profile-id> <preview-ref> external-agent:<preview-ref>
+  -> agent run inspect <exact-run-id>
 ```
 
 The default control plane is `http://127.0.0.1:4100`. Override it for another
@@ -77,7 +94,7 @@ Agents should follow that field rather than guessing a route.
 
 Unknown commands and venue identities fail closed with a non-zero process exit code and a JSON diagnostic. The present CLI cannot write external state or move value; both effects are literal `false` in every response.
 
-Authorized manual execution, exact run inspection/resume, campaign control,
+Run wait/resume, campaign control,
 catalog refresh, claim/link inspection, opportunity verification,
 deterministic replay, shadow execution, and Core projections remain planned CLI
 surfaces. Human-readable Studio views and compact CLI views consume

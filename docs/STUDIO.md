@@ -32,6 +32,13 @@ The normal development process opens `.data/control-plane.sqlite` in WAL mode.
 publish only storage posture (`SQLITE_WAL`, schema version, durability, and
 `taskId` idempotency), never the local filesystem path.
 
+The Agent Operations manual-run control is preview-bound. Previewing starts no
+provider/model work and creates no run. Studio executes only the returned
+content-addressed snapshot and derives a stable idempotency reference from its
+`previewRef`, so a retry returns the same research run instead of spending
+twice. This authority can start bounded research model work; it never grants
+trading, external-write, value-moving, or live-execution authority.
+
 The opportunity, payoff, verifier-trace, and capital panels are now derived
 from the control plane's checked-in reviewed-compilation qualification
 artifact. The artifact is a synthetic two-venue fixture and is labeled as such

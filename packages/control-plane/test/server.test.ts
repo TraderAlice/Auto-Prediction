@@ -827,13 +827,33 @@ describe("control-plane HTTP surface", () => {
       }),
     });
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toMatchObject({
+    const previewed = await response.json() as {
+      binding: {
+        schemaVersion: string;
+        previewRef: string;
+        taskId: string;
+        taskPayloadHash: string;
+        executionProfileId: string;
+        executionProfileRevision: number;
+        nextRunOrdinal: number;
+      };
+    };
+    expect(previewed).toMatchObject({
       ok: true,
       mode: "PREVIEW",
       preview: {
         task: { taskId: task.taskId },
         executionProfile: { executionProfileId: profile.executionProfileId },
         providerRequestsStarted: 0,
+      },
+      binding: {
+        schemaVersion: "pmh.agent-manual-run-preview-binding.v1",
+        taskId: task.taskId,
+        taskPayloadHash: task.taskPayloadHash,
+        executionProfileId: profile.executionProfileId,
+        executionProfileRevision: profile.revision,
+        nextRunOrdinal: 1,
+        runBudget: profile.runBudget,
       },
       providerRequestsStarted: 0,
       modelInvocationsStarted: 0,
@@ -843,10 +863,364 @@ describe("control-plane HTTP surface", () => {
       externalWriteAuthority: false,
       valueMovingAuthority: false,
     });
+    expect(previewed.binding.previewRef).toMatch(/^sha256:[0-9a-f]{64}$/);
+    expect(previewed.binding.previewRef).toBe(hashCanonical({
+      schemaVersion: "pmh.agent-manual-run-preview-binding.v1",
+      taskId: task.taskId,
+      taskPayloadHash: task.taskPayloadHash,
+      executionProfileId: profile.executionProfileId,
+      executionProfileRevision: profile.revision,
+      nextRunOrdinal: 1,
+      runBudget: profile.runBudget,
+    }));
     const after = registry.snapshot();
     expect(after.runs).toEqual(before.runs);
     expect(after.modelInvocations).toEqual(before.modelInvocations);
     expect(after.toolEffects).toEqual(before.toolEffects);
+  });
+
+  it("binds previewRef to current state and executes with authorization idempotency", async () => {
+    const registry = new AgentExecutionRegistry();
+    const configurationDesk = new AiRuntimeConfigurationDesk(
+      { PMH_DISCOVERY_PROVIDER: "codex" },
+      undefined,
+      () => Date.parse("2026-08-20T12:00:00.000Z"),
+    );
+    registry.saveBatch(buildDefaultAgentRuntimePortfolio(configurationDesk.current()));
+    const task = buildAgentTask({
+      kind: "RELATION_DISCOVERY",
+      protocol: "RELATION_DISCOVERY_TASK_V4",
+      inputArtifacts: [],
+      taskPayload: { fixture: "operator-execute" },
+      requestedEffectProtocol: "RELATION_DISCOVERY_AGENT_TOOLS_V1",
+      provenanceRef: "fixture:operator-execute",
+      priority: 1,
+      createdAt: "2026-08-20T12:01:00.000Z",
+    });
+    const other = buildAgentTask({
+      kind: "RELATION_DISCOVERY",
+      protocol: "RELATION_DISCOVERY_TASK_V4",
+      inputArtifacts: [],
+      taskPayload: { fixture: "operator-execute-other" },
+      requestedEffectProtocol: "RELATION_DISCOVERY_AGENT_TOOLS_V1",
+      provenanceRef: "fixture:operator-execute-other",
+      priority: 2,
+      createdAt: "2026-08-20T12:02:00.000Z",
+    });
+    registry.saveBatch({ tasks: [task, other] });
+    const profile = registry.snapshot().executionProfiles.find((item) =>
+      item.profileKey === "relation-discovery-codex-app-server"
+    )!;
+    const dispatcher = new AgentCampaignDispatcher({
+      registry,
+      credentialBroker: new AgentCredentialBroker([]),
+      adapters: [],
+      toolHost: {
+        manifest: () => Object.freeze([]),
+        execute: async () => Object.freeze({ status: "REJECTED" as const, output: {} }),
+      },
+      taskPayload: () => Object.freeze({ fixture: "operator-execute" }),
+    });
+    const { baseUrl } = await listenControlPlane({
+      agentExecutionRegistry: registry,
+      agentCampaignDispatcher: dispatcher,
+      aiRuntimeConfigurationDesk: configurationDesk,
+    });
+
+    const firstPreview = await fetch(`${baseUrl}/api/v1/agent-tasks/${task.taskId}/runs`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        mode: "PREVIEW",
+        executionProfileId: profile.executionProfileId,
+      }),
+    }).then((response) => response.json()) as {
+      binding: { previewRef: string; nextRunOrdinal: number };
+    };
+    expect(firstPreview.binding.nextRunOrdinal).toBe(1);
+
+    const malformedExecute = await fetch(`${baseUrl}/api/v1/agent-tasks/${task.taskId}/runs`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        mode: "EXECUTE",
+        executionProfileId: profile.executionProfileId,
+        authorizationRef: "operator:manual-a",
+      }),
+    });
+    expect(malformedExecute.status).toBe(409);
+    expect(registry.snapshot().runs).toHaveLength(0);
+
+    const created = await fetch(`${baseUrl}/api/v1/agent-tasks/${task.taskId}/runs`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        mode: "EXECUTE",
+        executionProfileId: profile.executionProfileId,
+        previewRef: firstPreview.binding.previewRef,
+        authorizationRef: "operator:manual-a",
+      }),
+    });
+    expect(created.status).toBe(202);
+    const createdBody = await created.json() as {
+      reused: boolean;
+      run: { runId: string; taskId: string; executionProfileId: string };
+    };
+    expect(createdBody).toMatchObject({
+      ok: true,
+      mode: "EXECUTE",
+      reused: false,
+      run: {
+        taskId: task.taskId,
+        executionProfileId: profile.executionProfileId,
+        authorization: { kind: "MANUAL", authorizationRef: "operator:manual-a" },
+        externalWriteAuthority: false,
+        valueMovingAuthority: false,
+      },
+      semanticDecisionAuthority: false,
+      certificateAuthority: false,
+      executionAuthority: true,
+      researchRunDispatchAuthorityConsumed: true,
+      providerOrModelWorkMayStart: true,
+      tradingExecutionAuthority: false,
+      liveExecutionEnabled: false,
+    });
+    expect(registry.snapshot().runs).toHaveLength(1);
+    expect(registry.snapshot().runAnnotations).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        runId: createdBody.run.runId,
+        category: "MANUAL_PREVIEW_BINDING",
+        sourceRecordRef: `manual-preview:${firstPreview.binding.previewRef}`,
+      }),
+    ]));
+
+    const reused = await fetch(`${baseUrl}/api/v1/agent-tasks/${task.taskId}/runs`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        mode: "EXECUTE",
+        executionProfileId: profile.executionProfileId,
+        previewRef: firstPreview.binding.previewRef,
+        authorizationRef: "operator:manual-a",
+      }),
+    });
+    expect(reused.status).toBe(200);
+    await expect(reused.json()).resolves.toMatchObject({
+      ok: true,
+      reused: true,
+      run: { runId: createdBody.run.runId },
+      previewRef: firstPreview.binding.previewRef,
+      dispatchStartedByRequest: false,
+      runCreatedByRequest: false,
+      executionAuthority: false,
+      researchRunDispatchAuthorityConsumed: false,
+      providerOrModelWorkMayStart: false,
+      tradingExecutionAuthority: false,
+      liveExecutionEnabled: false,
+    });
+    expect(registry.snapshot().runs).toHaveLength(1);
+    expect(registry.snapshot().modelInvocations).toHaveLength(0);
+
+    const secondPreview = await fetch(`${baseUrl}/api/v1/agent-tasks/${task.taskId}/runs`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        mode: "PREVIEW",
+        executionProfileId: profile.executionProfileId,
+      }),
+    }).then((response) => response.json()) as {
+      binding: { previewRef: string; nextRunOrdinal: number };
+    };
+    expect(secondPreview.binding.nextRunOrdinal).toBe(2);
+    expect(secondPreview.binding.previewRef).not.toBe(firstPreview.binding.previewRef);
+
+    const mismatchedRetry = await fetch(
+      `${baseUrl}/api/v1/agent-tasks/${task.taskId}/runs`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          mode: "EXECUTE",
+          executionProfileId: profile.executionProfileId,
+          previewRef: secondPreview.binding.previewRef,
+          authorizationRef: "operator:manual-a",
+        }),
+      },
+    );
+    expect(mismatchedRetry.status).toBe(409);
+    await expect(mismatchedRetry.json()).resolves.toMatchObject({
+      ok: false,
+      diagnostic: "manual authorizationRef is not bound to the requested previewRef",
+      researchRunDispatchAuthorityConsumed: false,
+      providerOrModelWorkMayStart: false,
+      tradingExecutionAuthority: false,
+    });
+    expect(registry.snapshot().runs).toHaveLength(1);
+
+    const stale = await fetch(`${baseUrl}/api/v1/agent-tasks/${task.taskId}/runs`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        mode: "EXECUTE",
+        executionProfileId: profile.executionProfileId,
+        previewRef: firstPreview.binding.previewRef,
+        authorizationRef: "operator:manual-b",
+      }),
+    });
+    expect(stale.status).toBe(409);
+    await expect(stale.json()).resolves.toMatchObject({
+      ok: false,
+      diagnostic: "manual Agent run previewRef is stale or mismatched",
+      executionAuthority: false,
+      liveExecutionEnabled: false,
+    });
+    expect(registry.snapshot().runs).toHaveLength(1);
+
+    const otherPreview = await fetch(`${baseUrl}/api/v1/agent-tasks/${other.taskId}/runs`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        mode: "PREVIEW",
+        executionProfileId: profile.executionProfileId,
+      }),
+    }).then((response) => response.json()) as { binding: { previewRef: string } };
+    const crossBound = await fetch(`${baseUrl}/api/v1/agent-tasks/${other.taskId}/runs`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        mode: "EXECUTE",
+        executionProfileId: profile.executionProfileId,
+        previewRef: otherPreview.binding.previewRef,
+        authorizationRef: "operator:manual-a",
+      }),
+    });
+    expect(crossBound.status).toBe(409);
+    await expect(crossBound.json()).resolves.toMatchObject({
+      ok: false,
+      diagnostic:
+        "manual authorizationRef is already bound to another task or execution profile",
+    });
+    expect(registry.snapshot().runs).toHaveLength(1);
+    expect(registry.snapshot().runs[0]?.runId).toBe(createdBody.run.runId);
+  });
+
+  it("inspects one Agent run without leaking another run's records", async () => {
+    const registry = new AgentExecutionRegistry();
+    const retained = buildAgentTask({
+      kind: "RULE_EVIDENCE_CLAIM",
+      protocol: "RULE_EVIDENCE_TASK_V1",
+      inputArtifacts: [],
+      taskPayload: { fixture: "operator-run-inspect" },
+      requestedEffectProtocol: "RULE_EVIDENCE_TOOLS_V1",
+      provenanceRef: "fixture:operator-run-inspect",
+      priority: 1,
+      createdAt: "2026-08-20T13:00:00.000Z",
+    });
+    const other = buildAgentTask({
+      kind: "RULE_EVIDENCE_CLAIM",
+      protocol: "RULE_EVIDENCE_TASK_V1",
+      inputArtifacts: [],
+      taskPayload: { fixture: "operator-run-other" },
+      requestedEffectProtocol: "RULE_EVIDENCE_TOOLS_V1",
+      provenanceRef: "fixture:operator-run-other",
+      priority: 2,
+      createdAt: "2026-08-20T13:01:00.000Z",
+    });
+    registry.saveBatch({ tasks: [retained, other] });
+    const { baseUrl } = await listenControlPlane({ agentExecutionRegistry: registry });
+    const profile = registry.snapshot().executionProfiles.find((item) =>
+      item.profileKey === "rule-evidence-codex-app-server"
+    )!;
+    const retainedRun = completeAgentRun(
+      buildAgentRun({
+        task: retained,
+        executionProfile: profile,
+        runOrdinal: 1,
+        authorization: {
+          kind: "MANUAL",
+          authorizationRef: "operator:run-inspect",
+          authorizedAt: "2026-08-20T13:02:00.000Z",
+        },
+        createdAt: "2026-08-20T13:02:00.000Z",
+      }),
+      "FAILED",
+      "2026-08-20T13:03:00.000Z",
+      "inspect fixture",
+    );
+    const otherRun = completeAgentRun(
+      buildAgentRun({
+        task: other,
+        executionProfile: profile,
+        runOrdinal: 1,
+        authorization: {
+          kind: "MANUAL",
+          authorizationRef: "operator:run-other",
+          authorizedAt: "2026-08-20T13:04:00.000Z",
+        },
+        createdAt: "2026-08-20T13:04:00.000Z",
+      }),
+      "FAILED",
+      "2026-08-20T13:05:00.000Z",
+      "must not leak",
+    );
+    registry.saveBatch({ runs: [retainedRun, otherRun] });
+
+    const missingId = `sha256:${"b".repeat(64)}`;
+    const missing = await fetch(`${baseUrl}/api/v1/agent-operator/runs/${missingId}`);
+    expect(missing.status).toBe(404);
+    await expect(missing.json()).resolves.toMatchObject({
+      ok: false,
+      diagnostic: `Agent run ${missingId} was not found`,
+      providerRequestsStartedByRead: 0,
+      modelInvocationsStartedByRead: 0,
+      writesStartedByRead: 0,
+      runsCreatedByRead: 0,
+      semanticDecisionAuthority: false,
+      certificateAuthority: false,
+      executionAuthority: false,
+      liveExecutionEnabled: false,
+    });
+
+    const response = await fetch(
+      `${baseUrl}/api/v1/agent-operator/runs/${retainedRun.runId}`,
+    );
+    expect(response.status).toBe(200);
+    const text = await response.text();
+    expect(Buffer.byteLength(text)).toBeLessThan(16_000);
+    const body = JSON.parse(text) as Record<string, unknown>;
+    expect(body).toMatchObject({
+      schemaVersion: "pmh.agent-operator-run.v1",
+      run: { runId: retainedRun.runId, taskId: retained.taskId },
+      task: {
+        taskId: retained.taskId,
+        kind: "RULE_EVIDENCE_CLAIM",
+        taskPayloadHash: retained.taskPayloadHash,
+      },
+      executionProfile: {
+        executionProfileId: profile.executionProfileId,
+        profileKey: "rule-evidence-codex-app-server",
+      },
+      modelInvocationCount: 0,
+      modelInvocationsTruncated: false,
+      toolEffectCount: 0,
+      artifactCount: 0,
+      annotationCount: 0,
+      resultSelectionCount: 0,
+      providerRequestsStartedByRead: 0,
+      modelInvocationsStartedByRead: 0,
+      writesStartedByRead: 0,
+      runsCreatedByRead: 0,
+      automaticDispatch: false,
+      semanticDecisionAuthority: false,
+      certificateAuthority: false,
+      executionAuthority: false,
+      externalWriteAuthority: false,
+      valueMovingAuthority: false,
+      liveExecutionEnabled: false,
+    });
+    expect(text).not.toContain(otherRun.runId);
+    expect(body).not.toHaveProperty("execution");
+    expect(body).not.toHaveProperty("worldStateMechanisms");
   });
 
   it("allows incremented loopback Studio origins without reflecting remote origins", async () => {
