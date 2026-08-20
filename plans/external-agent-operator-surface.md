@@ -72,12 +72,22 @@ qualification, or verification verdict logic.
   historical tasks do not emit invalid actions. Manual preview binds both
   identities while proving zero provider/model/write/run effects and grants no
   execute authority.
+- A content-addressed preview now binds task payload, execution-profile
+  revision, next run ordinal, and run budget. Manual execution requires that
+  exact binding plus a caller-owned global idempotency reference.
+- First execution truthfully reports that research provider/model work may
+  start. An exact retry returns the retained run without duplicate dispatch;
+  cross-binding authorization reuse and stale previews fail closed.
+- Exact run inspection exposes only bounded run-bound records and zero read
+  effects. The CLI rejects identity drift, authority leakage, response-storage
+  leakage, unbounded collections, and inconsistent count/truncation metadata.
+- Studio uses the same preview binding and a preview-derived idempotency key;
+  the old global fixed browser authorization reference has been removed.
 
 ## Next implementation frontier
 
-The machine surface can now discover, inspect, and preview exact work but cannot
-yet execute and follow a research run to a retained outcome. The next mainline
-slice should require a caller-supplied authorization/idempotency reference,
-execute only a previously previewed task/profile binding, expose bounded run
-inspection and wait/resume commands, and test the whole journey with a fresh
-external Agent session under an explicit context budget.
+The machine surface can now discover, inspect, preview, execute, and poll an
+exact research run without gaining trading authority. The next mainline slice
+should add a bounded wait/resume contract for interrupted work, retain machine
+operator-friction measurements, and test the complete zero-context journey
+with a fresh external Agent session under an explicit context budget.

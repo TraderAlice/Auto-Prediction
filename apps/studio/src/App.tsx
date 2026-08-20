@@ -87,6 +87,25 @@ type SearchAttentionMessage = StudioProjection["ai"]["searchAttention"]["message
 type CatalogMode = "VERIFIED_FIXTURES" | "CURRENT_OBSERVATIONS";
 type AiRuntimeConfiguration =
   StudioProjection["ai"]["runtimeConfiguration"]["configuration"];
+type ManualRunPreview = Readonly<{
+  ok: true;
+  mode: "PREVIEW";
+  binding: Readonly<{
+    schemaVersion: "pmh.agent-manual-run-preview-binding.v1";
+    taskId: string;
+    executionProfileId: string;
+    previewRef: string;
+    nextRunOrdinal: number;
+  }>;
+  providerRequestsStarted: 0;
+  modelInvocationsStarted: 0;
+  writesStarted: 0;
+  runsCreated: 0;
+  providerOrModelWorkMayStart: false;
+  tradingExecutionAuthority: false;
+  externalWriteAuthority: false;
+  valueMovingAuthority: false;
+}>;
 type AgentExecutionConsole = Readonly<{
   schemaVersion: "pmh.agent-execution-console.v1";
   summary: Readonly<{
@@ -1775,6 +1794,43 @@ const EMPTY_CATALOG_CONTEXT: StudioProjection["ai"]["catalogContext"] = {
   sourceFixtureCount: 0,
   maxListingsPerTask: 30,
 };
+
+function manualRunPreview(
+  value: unknown,
+  taskId: string,
+  executionProfileId: string,
+): ManualRunPreview {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("Manual run preview response is malformed");
+  }
+  const document = value as Record<string, unknown>;
+  const binding = document.binding;
+  if (binding === null || typeof binding !== "object" || Array.isArray(binding)) {
+    throw new Error("Manual run preview binding is missing");
+  }
+  const exact = binding as Record<string, unknown>;
+  if (
+    document.ok !== true ||
+    document.mode !== "PREVIEW" ||
+    exact.schemaVersion !== "pmh.agent-manual-run-preview-binding.v1" ||
+    exact.taskId !== taskId ||
+    exact.executionProfileId !== executionProfileId ||
+    typeof exact.previewRef !== "string" ||
+    !exact.previewRef.startsWith("sha256:") ||
+    !Number.isSafeInteger(exact.nextRunOrdinal) ||
+    document.providerRequestsStarted !== 0 ||
+    document.modelInvocationsStarted !== 0 ||
+    document.writesStarted !== 0 ||
+    document.runsCreated !== 0 ||
+    document.providerOrModelWorkMayStart !== false ||
+    document.tradingExecutionAuthority !== false ||
+    document.externalWriteAuthority !== false ||
+    document.valueMovingAuthority !== false
+  ) {
+    throw new Error("Manual run preview crossed its bound zero-effect contract");
+  }
+  return value as ManualRunPreview;
+}
 
 const EMPTY_OPPORTUNITY_RADAR: StudioProjection["ai"]["opportunityRadar"] = {
   algorithmVersion: "pmh.opportunity-radar.semantic-rotation-v3",
@@ -4461,7 +4517,7 @@ function AgentOperationsView() {
   const [busy, setBusy] = useState<string | null>(null);
   const [taskId, setTaskId] = useState("");
   const [profileId, setProfileId] = useState("");
-  const [manualPreview, setManualPreview] = useState<unknown | null>(null);
+  const [manualPreview, setManualPreview] = useState<ManualRunPreview | null>(null);
 
   async function refresh() {
     const workspace = await requestAgentWorkspace();
@@ -4550,7 +4606,9 @@ function AgentOperationsView() {
     setDiagnostic(null);
     try {
       const result = await action();
-      if (key === "manual-preview") setManualPreview(result);
+      if (key === "manual-preview") {
+        setManualPreview(manualRunPreview(result, taskId, profileId));
+      }
       else setManualPreview(null);
       await refresh();
     } catch (error) {
@@ -5857,12 +5915,23 @@ function AgentOperationsView() {
               schedule: { kind: "MANUAL_ONLY", intervalMs: null },
               budget: { maximumConcurrentRuns: 1, maximumModelInvocations: 3, maximumInputTokens: "100000", maximumOutputTokens: "20000", maximumWallClockMs: 300000 },
             }))}>Create paused campaign</Button>
-            {manualPreview !== null && <Button disabled={busy !== null || selectedCapability?.dispatchEligibility !== "ELIGIBLE"} onClick={() => void perform("manual-execute", () => post(`/api/v1/agent-tasks/${taskId}/runs`, { mode: "EXECUTE", executionProfileId: profileId, authorizationRef: "operator:studio-manual" }))}><Play size={12} /> Run reviewed snapshot</Button>}
+            {manualPreview !== null && <Button disabled={busy !== null || selectedCapability?.dispatchEligibility !== "ELIGIBLE"} onClick={() => void perform("manual-execute", () => post(`/api/v1/agent-tasks/${taskId}/runs`, {
+              mode: "EXECUTE",
+              executionProfileId: profileId,
+              previewRef: manualPreview.binding.previewRef,
+              authorizationRef: `studio:${manualPreview.binding.previewRef}`,
+            }))}><Play size={12} /> Run reviewed snapshot</Button>}
           </div>
           {selectedCapability?.dispatchEligibility === "BLOCKED" && (
             <div className="inline-alert"><CircleOff size={14} />Selected profile is blocked: {selectedCapability.diagnostic}</div>
           )}
-          {manualPreview !== null && <pre className="agent-preview">{JSON.stringify(manualPreview, null, 2)}</pre>}
+          {manualPreview !== null && (
+            <div className="agent-preview">
+              <strong>Reviewed snapshot ready · run {manualPreview.binding.nextRunOrdinal}</strong>
+              <span>Executing this preview is idempotent. Reusing it returns the same run and never starts duplicate model work.</span>
+              <code>{manualPreview.binding.previewRef}</code>
+            </div>
+          )}
         </CardContent>
       </Card>
 

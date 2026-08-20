@@ -3675,6 +3675,8 @@ footer {
 }
 
 .agent-preview {
+  display: grid;
+  gap: 5px;
   max-height: 240px;
   overflow: auto;
   margin: 14px 0 0;
@@ -3687,6 +3689,18 @@ footer {
   line-height: 1.5;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+
+.agent-preview strong {
+  color: var(--foreground);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.agent-preview code {
+  margin-top: 3px;
+  color: var(--muted-foreground);
+  font-size: 11px;
 }
 
 .agent-run-row {

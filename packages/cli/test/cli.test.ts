@@ -44,6 +44,13 @@ const TARGET_ID = `sha256:${"1".repeat(64)}`;
 const TASK_ID = `sha256:${"2".repeat(64)}`;
 const PROFILE_ID = `sha256:${"3".repeat(64)}`;
 const OTHER_ID = `sha256:${"a".repeat(64)}`;
+const TASK_PAYLOAD_HASH = `sha256:${"5".repeat(64)}`;
+const PREVIEW_REF = `sha256:${"6".repeat(64)}`;
+const RUN_ID = `sha256:${"7".repeat(64)}`;
+const OTHER_RUN_ID = `sha256:${"8".repeat(64)}`;
+const AUTH_REF = `external-agent:${PREVIEW_REF}`;
+const EXECUTE_COMMAND =
+  `agent task execute ${TASK_ID} ${PROFILE_ID} ${PREVIEW_REF} ${AUTH_REF}`;
 
 const OPERATOR_READ_EFFECTS = Object.freeze({
   providerRequestsStartedByRead: 0,
@@ -129,7 +136,15 @@ function operatorTask(taskId: string, profileId = PROFILE_ID) {
   };
 }
 
-function previewDocument(taskId: string, executionProfileId: string) {
+const RUN_BUDGET = Object.freeze({
+  maximumModelInvocations: 12,
+  maximumToolCalls: 32,
+  maximumWallClockMs: 300_000,
+  maximumInputTokens: "300000",
+  maximumOutputTokens: "30000",
+});
+
+function previewDocument(taskId: string, executionProfileId: string, previewRef = PREVIEW_REF) {
   return {
     ok: true,
     mode: "PREVIEW",
@@ -137,6 +152,7 @@ function previewDocument(taskId: string, executionProfileId: string) {
       task: {
         schemaVersion: "pmh.agent-task.v1",
         taskId,
+        taskPayloadHash: TASK_PAYLOAD_HASH,
         kind: "RELATION_DISCOVERY",
         authority: TASK_AUTHORITY,
       },
@@ -144,18 +160,131 @@ function previewDocument(taskId: string, executionProfileId: string) {
         schemaVersion: "pmh.execution-profile.v1",
         executionProfileId,
         profileKey: "relation-discovery-codex-app-server",
+        revision: 2,
       },
       nextRunOrdinal: 1,
       maximumModelInvocations: 12,
       providerRequestsStarted: 0,
+    },
+    binding: {
+      schemaVersion: "pmh.agent-manual-run-preview-binding.v1",
+      previewRef,
+      taskId,
+      taskPayloadHash: TASK_PAYLOAD_HASH,
+      executionProfileId,
+      executionProfileRevision: 2,
+      nextRunOrdinal: 1,
+      runBudget: RUN_BUDGET,
     },
     providerRequestsStarted: 0,
     modelInvocationsStarted: 0,
     writesStarted: 0,
     runsCreated: 0,
     executionAuthority: false,
+    researchRunDispatchAuthorityConsumed: false,
+    providerOrModelWorkMayStart: false,
+    tradingExecutionAuthority: false,
     externalWriteAuthority: false,
     valueMovingAuthority: false,
+    liveExecutionEnabled: false,
+  };
+}
+
+function manualRun(runId: string, taskId: string, executionProfileId: string, status = "PREPARED") {
+  return {
+    schemaVersion: "pmh.agent-run.v1",
+    runId,
+    taskId,
+    executionProfileId,
+    runOrdinal: 1,
+    status,
+    authorization: {
+      kind: "MANUAL",
+      authorizationRef: AUTH_REF,
+      campaignId: null,
+      authorizedAt: "2026-08-20T15:00:00.000Z",
+    },
+    createdAt: "2026-08-20T15:00:00.000Z",
+    completedAt: status === "PREPARED" ? null : "2026-08-20T15:01:00.000Z",
+    terminalDiagnostic: status === "PREPARED" ? null : "fixture",
+    externalWriteAuthority: false,
+    valueMovingAuthority: false,
+  };
+}
+
+function executeDocument(input: {
+  reused: boolean;
+  runId?: string;
+  taskId?: string;
+  executionProfileId?: string;
+  previewRef?: string;
+  executionAuthority?: boolean;
+}) {
+  const reused = input.reused;
+  const taskId = input.taskId ?? TASK_ID;
+  const executionProfileId = input.executionProfileId ?? PROFILE_ID;
+  const previewRef = input.previewRef ?? PREVIEW_REF;
+  return {
+    ok: true,
+    mode: "EXECUTE",
+    reused,
+    run: manualRun(input.runId ?? RUN_ID, taskId, executionProfileId),
+    previewRef,
+    ...(reused
+      ? {}
+      : {
+          binding: previewDocument(taskId, executionProfileId, previewRef).binding,
+          preview: previewDocument(taskId, executionProfileId, previewRef).preview,
+        }),
+    dispatchStartedByRequest: !reused,
+    runCreatedByRequest: !reused,
+    executionAuthority: input.executionAuthority ?? !reused,
+    researchRunDispatchAuthorityConsumed: !reused,
+    providerOrModelWorkMayStart: !reused,
+    semanticDecisionAuthority: false,
+    certificateAuthority: false,
+    tradingExecutionAuthority: false,
+    externalWriteAuthority: false,
+    valueMovingAuthority: false,
+    liveExecutionEnabled: false,
+  };
+}
+
+function operatorRun(runId: string, status = "PREPARED", leakedRunId?: string) {
+  return {
+    schemaVersion: "pmh.agent-operator-run.v1",
+    run: manualRun(runId, TASK_ID, PROFILE_ID, status),
+    task: {
+      taskId: TASK_ID,
+      kind: "RELATION_DISCOVERY",
+      taskPayloadHash: TASK_PAYLOAD_HASH,
+      protocol: "RELATION_DISCOVERY_TASK_V4",
+    },
+    executionProfile: {
+      executionProfileId: PROFILE_ID,
+      profileKey: "relation-discovery-codex-app-server",
+      revision: 2,
+    },
+    modelInvocations: [],
+    modelInvocationCount: 0,
+    modelInvocationsTruncated: false,
+    toolEffects: [],
+    toolEffectCount: 0,
+    toolEffectsTruncated: false,
+    artifacts: [],
+    artifactCount: 0,
+    artifactsTruncated: false,
+    annotations: leakedRunId === undefined
+      ? []
+      : [{ runId: leakedRunId, annotationId: OTHER_ID, category: "LEAK" }],
+    annotationCount: leakedRunId === undefined ? 0 : 1,
+    annotationsTruncated: false,
+    resultSelections: [],
+    resultSelectionCount: 0,
+    resultSelectionsTruncated: false,
+    ...OPERATOR_READ_EFFECTS,
+    tradingExecutionAuthority: false,
+    liveExecutionEnabled: false,
   };
 }
 
@@ -175,6 +304,10 @@ describe("versioned CLI envelope", () => {
     expect(result.allowedNextActions).toContain(
       "agent task preview <task-id> <execution-profile-id>",
     );
+    expect(result.allowedNextActions).toContain(
+      "agent task execute <task-id> <execution-profile-id> <preview-ref> <authorization-ref>",
+    );
+    expect(result.allowedNextActions).toContain("agent run inspect <run-id>");
   });
 
   it("reports the system's Node 22 baseline and live-disabled boundary", async () => {
@@ -562,25 +695,34 @@ describe("versioned CLI envelope", () => {
     expect(result.state).toMatchObject({
       mode: "PREVIEW",
       preview: {
-        task: { taskId: TASK_ID },
+        task: { taskId: TASK_ID, taskPayloadHash: TASK_PAYLOAD_HASH },
         executionProfile: { executionProfileId: PROFILE_ID },
         providerRequestsStarted: 0,
       },
+      binding: {
+        schemaVersion: "pmh.agent-manual-run-preview-binding.v1",
+        previewRef: PREVIEW_REF,
+        taskId: TASK_ID,
+        executionProfileId: PROFILE_ID,
+      },
+      previewRef: PREVIEW_REF,
       providerRequestsStarted: 0,
       modelInvocationsStarted: 0,
       writesStarted: 0,
       runsCreated: 0,
       executionAuthority: false,
-      externalWriteAuthority: false,
-      valueMovingAuthority: false,
+      researchRunDispatchAuthorityConsumed: false,
+      providerOrModelWorkMayStart: false,
+      tradingExecutionAuthority: false,
+      liveExecutionEnabled: false,
     });
     expect(result.state).not.toHaveProperty("run");
     expect(result.allowedNextActions).toEqual([
+      EXECUTE_COMMAND,
       `agent task inspect ${TASK_ID}`,
       "agent workspace",
       "help",
     ]);
-    expect(result.allowedNextActions.join(" ")).not.toMatch(/execute/i);
     expect(result.effects.liveExecutionEnabled).toBe(false);
   });
 
@@ -614,6 +756,195 @@ describe("versioned CLI envelope", () => {
       code: "CONTROL_PLANE_HTTP_ERROR",
       message: expect.stringContaining("Agent task is unavailable"),
     });
+  });
+
+  it("rejects a preview whose binding identities do not match the request", async () => {
+    const baseUrl = await serve(async (request, response) => {
+      await readJsonBody(request);
+      json(response, previewDocument(TASK_ID, OTHER_ID));
+    });
+    const result = await runCli(
+      ["agent", "task", "preview", TASK_ID, PROFILE_ID],
+      { baseUrl },
+    );
+    expect(result.ok).toBe(false);
+    expect(result.diagnostics[0]?.code).toBe("CONTROL_PLANE_MALFORMED_RESPONSE");
+  });
+
+  it("executes a preview-bound research run without trading authority", async () => {
+    const baseUrl = await serve(async (request, response) => {
+      expect(request.method).toBe("POST");
+      expect(request.url).toBe(`/api/v1/agent-tasks/${TASK_ID}/runs`);
+      expect(await readJsonBody(request)).toEqual({
+        mode: "EXECUTE",
+        executionProfileId: PROFILE_ID,
+        previewRef: PREVIEW_REF,
+        authorizationRef: AUTH_REF,
+      });
+      json(response, executeDocument({ reused: false }), 202);
+    });
+    const result = await runCli(
+      ["agent", "task", "execute", TASK_ID, PROFILE_ID, PREVIEW_REF, AUTH_REF],
+      { baseUrl },
+    );
+    expect(result.ok).toBe(true);
+    expect(result.identity.command).toBe("agent.task.execute");
+    expect(result.state).toMatchObject({
+      reused: false,
+      run: { runId: RUN_ID, taskId: TASK_ID },
+      previewRef: PREVIEW_REF,
+      dispatchStartedByRequest: true,
+      runCreatedByRequest: true,
+      executionAuthority: true,
+      researchRunDispatchAuthorityConsumed: true,
+      providerOrModelWorkMayStart: true,
+      tradingExecutionAuthority: false,
+      liveExecutionEnabled: false,
+    });
+    expect(result.allowedNextActions).toEqual([
+      `agent run inspect ${RUN_ID}`,
+      "agent workspace",
+      "help",
+    ]);
+    expect(result.effects).toEqual({
+      externalWrites: false,
+      valueMovingActions: false,
+      liveExecutionEnabled: false,
+    });
+  });
+
+  it("reuses an idempotent execute without dispatching another run", async () => {
+    const baseUrl = await serve(async (request, response) => {
+      expect(await readJsonBody(request)).toMatchObject({
+        mode: "EXECUTE",
+        previewRef: PREVIEW_REF,
+        authorizationRef: AUTH_REF,
+      });
+      json(response, executeDocument({ reused: true }), 200);
+    });
+    const result = await runCli(
+      ["agent", "task", "execute", TASK_ID, PROFILE_ID, PREVIEW_REF, AUTH_REF],
+      { baseUrl },
+    );
+    expect(result.ok).toBe(true);
+    expect(result.state).toMatchObject({
+      reused: true,
+      run: { runId: RUN_ID },
+      previewRef: PREVIEW_REF,
+      dispatchStartedByRequest: false,
+      runCreatedByRequest: false,
+      executionAuthority: false,
+      researchRunDispatchAuthorityConsumed: false,
+      providerOrModelWorkMayStart: false,
+      tradingExecutionAuthority: false,
+    });
+    expect(result.allowedNextActions[0]).toBe(`agent run inspect ${RUN_ID}`);
+    expect(result.effects.liveExecutionEnabled).toBe(false);
+  });
+
+  it("rejects execute responses that mix research-run and trading authority", async () => {
+    const baseUrl = await serve(async (request, response) => {
+      await readJsonBody(request);
+      json(response, {
+        ...executeDocument({ reused: true, executionAuthority: true }),
+      }, 200);
+    });
+    const result = await runCli(
+      ["agent", "task", "execute", TASK_ID, PROFILE_ID, PREVIEW_REF, AUTH_REF],
+      { baseUrl },
+    );
+    expect(result.ok).toBe(false);
+    expect(result.diagnostics[0]?.code).toBe("CONTROL_PLANE_MALFORMED_RESPONSE");
+  });
+
+  it("rejects an execute whose returned run identity does not match the request", async () => {
+    const baseUrl = await serve(async (request, response) => {
+      await readJsonBody(request);
+      json(response, executeDocument({ reused: false, taskId: OTHER_ID }), 202);
+    });
+    const result = await runCli(
+      ["agent", "task", "execute", TASK_ID, PROFILE_ID, PREVIEW_REF, AUTH_REF],
+      { baseUrl },
+    );
+    expect(result.ok).toBe(false);
+    expect(result.diagnostics[0]?.code).toBe("CONTROL_PLANE_MALFORMED_RESPONSE");
+  });
+
+  it("inspects a PREPARED run with a polling next action", async () => {
+    const baseUrl = await serve((request, response) => {
+      expect(request.method).toBe("GET");
+      expect(request.url).toBe(`/api/v1/agent-operator/runs/${RUN_ID}`);
+      json(response, operatorRun(RUN_ID, "PREPARED"));
+    });
+    const result = await runCli(["agent", "run", "inspect", RUN_ID], { baseUrl });
+    expect(result.ok).toBe(true);
+    expect(result.state).toMatchObject({
+      schemaVersion: "pmh.agent-operator-run.v1",
+      run: { runId: RUN_ID, status: "PREPARED" },
+      task: { taskId: TASK_ID },
+      executionProfile: { executionProfileId: PROFILE_ID },
+      modelInvocationCount: 0,
+      annotationsTruncated: false,
+      providerRequestsStartedByRead: 0,
+      tradingExecutionAuthority: false,
+      liveExecutionEnabled: false,
+    });
+    expect(result.allowedNextActions).toEqual([`agent run inspect ${RUN_ID}`]);
+  });
+
+  it("inspects a terminal run and returns exact task inspect next actions", async () => {
+    const baseUrl = await serve((_request, response) =>
+      json(response, operatorRun(RUN_ID, "FAILED"))
+    );
+    const result = await runCli(["agent", "run", "inspect", RUN_ID], { baseUrl });
+    expect(result.ok).toBe(true);
+    expect(result.allowedNextActions).toEqual([
+      `agent task inspect ${TASK_ID}`,
+      "agent workspace",
+      "help",
+    ]);
+  });
+
+  it("rejects a run inspect that leaks another run's records", async () => {
+    const baseUrl = await serve((_request, response) =>
+      json(response, operatorRun(RUN_ID, "PREPARED", OTHER_RUN_ID))
+    );
+    const result = await runCli(["agent", "run", "inspect", RUN_ID], { baseUrl });
+    expect(result.ok).toBe(false);
+    expect(result.diagnostics[0]?.code).toBe("CONTROL_PLANE_MALFORMED_RESPONSE");
+  });
+
+  it("rejects malformed execute and run identities without HTTP", async () => {
+    let requested = false;
+    const host = {
+      fetchImpl: async () => {
+        requested = true;
+        throw new Error("must not request");
+      },
+    };
+    const badHash = await runCli(
+      ["agent", "task", "execute", "not-a-hash", PROFILE_ID, PREVIEW_REF, AUTH_REF],
+      host,
+    );
+    expect(badHash.ok).toBe(false);
+    expect(badHash.diagnostics[0]).toMatchObject({
+      code: "CLI_ARGUMENT_INVALID",
+      message: "task-id must be an exact sha256 identity.",
+    });
+    const blankAuth = await runCli(
+      ["agent", "task", "execute", TASK_ID, PROFILE_ID, PREVIEW_REF, "  "],
+      host,
+    );
+    expect(blankAuth.diagnostics[0]).toMatchObject({
+      code: "CLI_ARGUMENT_INVALID",
+      message: "authorization-ref must be a bounded nonblank identifier.",
+    });
+    const badRun = await runCli(["agent", "run", "inspect", "../runs"], host);
+    expect(badRun.diagnostics[0]).toMatchObject({
+      code: "CLI_ARGUMENT_INVALID",
+      message: "run-id must be an exact sha256 identity.",
+    });
+    expect(requested).toBe(false);
   });
 
   it("inspects validated venue capability evidence", async () => {

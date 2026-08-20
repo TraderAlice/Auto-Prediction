@@ -507,6 +507,7 @@ import {
 import {
   AgentExecutionRegistry,
   activateAgentCampaign,
+  buildAgentRunAnnotation,
   buildPausedAgentCampaign,
   buildRuleEvidenceAgentTask,
   buildRuleEvidenceAgentTaskPayload,
@@ -527,6 +528,10 @@ import { buildDefaultAgentRuntimePortfolio } from "./agent-runtime-portfolio.js"
 import {
   AgentCampaignDispatcher,
 } from "./agent-campaign-dispatcher.js";
+import {
+  buildAgentManualRunPreviewBinding,
+  currentManualRunPreviewBinding,
+} from "./agent-manual-run-preview-binding.js";
 import {
   agentInputRevisionAnnotationMatches,
   buildAgentInputRevisionRunAnnotation,
@@ -6858,6 +6863,114 @@ export function createControlPlane(options?: {
       }), { "cache-control": "no-store" });
       return;
     }
+    const operatorRunMatch = url.pathname.match(
+      /^\/api\/v1\/agent-operator\/runs\/(sha256:[0-9a-f]{64})$/u,
+    );
+    if (request.method === "GET" && operatorRunMatch !== null) {
+      await ready;
+      const snapshot = agentExecutionRegistry.snapshot();
+      const runId = operatorRunMatch[1] as Hash;
+      const run = snapshot.runs.find((item) => item.runId === runId);
+      const operatorReadEffects = Object.freeze({
+        providerRequestsStartedByRead: 0 as const,
+        modelInvocationsStartedByRead: 0 as const,
+        fetchesStartedByRead: 0 as const,
+        writesStartedByRead: 0 as const,
+        runsCreatedByRead: 0 as const,
+        automaticDispatch: false as const,
+        semanticDecisionAuthority: false as const,
+        certificateAuthority: false as const,
+        executionAuthority: false as const,
+        externalWriteAuthority: false as const,
+        valueMovingAuthority: false as const,
+        liveExecutionEnabled: false as const,
+      });
+      if (run === undefined) {
+        writeJson(response, 404, Object.freeze({
+          ok: false as const,
+          diagnostic: `Agent run ${runId} was not found`,
+          ...operatorReadEffects,
+        }), { "cache-control": "no-store" });
+        return;
+      }
+      const task = snapshot.tasks.find((item) => item.taskId === run.taskId);
+      const profile = snapshot.executionProfiles.find((item) =>
+        item.executionProfileId === run.executionProfileId
+      );
+      const capCollection = <T,>(
+        items: readonly T[],
+        cap = 32,
+      ): Readonly<{
+        items: readonly T[];
+        count: number;
+        truncated: boolean;
+      }> => Object.freeze({
+        items: Object.freeze(items.slice(0, cap)),
+        count: items.length,
+        truncated: items.length > cap,
+      });
+      const modelInvocations = capCollection(
+        snapshot.modelInvocations.filter((item) => item.runId === runId)
+          .sort((left, right) => left.ordinal - right.ordinal ||
+            left.invocationId.localeCompare(right.invocationId)),
+      );
+      const toolEffects = capCollection(
+        snapshot.toolEffects.filter((item) => item.runId === runId)
+          .sort((left, right) => left.ordinal - right.ordinal ||
+            left.effectId.localeCompare(right.effectId)),
+      );
+      const artifacts = capCollection(
+        snapshot.runArtifacts.filter((item) => item.runId === runId)
+          .sort((left, right) => left.ordinal - right.ordinal ||
+            left.artifactId.localeCompare(right.artifactId)),
+      );
+      const annotations = capCollection(
+        snapshot.runAnnotations.filter((item) => item.runId === runId)
+          .sort((left, right) => left.createdAt.localeCompare(right.createdAt) ||
+            left.annotationId.localeCompare(right.annotationId)),
+      );
+      const resultSelections = capCollection(
+        snapshot.resultSelections.filter((item) => item.runId === runId)
+          .sort((left, right) => left.selectedAt.localeCompare(right.selectedAt) ||
+            left.selectionId.localeCompare(right.selectionId)),
+      );
+      writeJson(response, 200, Object.freeze({
+        schemaVersion: "pmh.agent-operator-run.v1" as const,
+        run,
+        task: task === undefined
+          ? null
+          : Object.freeze({
+              taskId: task.taskId,
+              kind: task.kind,
+              taskPayloadHash: task.taskPayloadHash,
+              protocol: task.protocol,
+            }),
+        executionProfile: profile === undefined
+          ? null
+          : Object.freeze({
+              executionProfileId: profile.executionProfileId,
+              profileKey: profile.profileKey,
+              revision: profile.revision,
+            }),
+        modelInvocations: modelInvocations.items,
+        modelInvocationCount: modelInvocations.count,
+        modelInvocationsTruncated: modelInvocations.truncated,
+        toolEffects: toolEffects.items,
+        toolEffectCount: toolEffects.count,
+        toolEffectsTruncated: toolEffects.truncated,
+        artifacts: artifacts.items,
+        artifactCount: artifacts.count,
+        artifactsTruncated: artifacts.truncated,
+        annotations: annotations.items,
+        annotationCount: annotations.count,
+        annotationsTruncated: annotations.truncated,
+        resultSelections: resultSelections.items,
+        resultSelectionCount: resultSelections.count,
+        resultSelectionsTruncated: resultSelections.truncated,
+        ...operatorReadEffects,
+      }), { "cache-control": "no-store" });
+      return;
+    }
     if (
       request.method === "GET" &&
       url.pathname === "/api/v1/discovery-execution-capability"
@@ -8779,52 +8892,154 @@ export function createControlPlane(options?: {
         const body = await readJson(request) as Record<string, unknown>;
         if (body === null || typeof body !== "object" || Array.isArray(body) ||
             !["PREVIEW", "EXECUTE"].includes(String(body.mode)) ||
-            typeof body.executionProfileId !== "string" ||
-            (body.mode === "EXECUTE" && typeof body.authorizationRef !== "string")) {
+            typeof body.executionProfileId !== "string") {
           throw new Error("manual Agent run request is malformed");
         }
-        const preview = agentCampaignDispatcher.previewManual(
-          manualAgentRunMatch[1] as Hash,
-          body.executionProfileId as Hash,
-        );
+        const taskId = manualAgentRunMatch[1] as Hash;
+        const executionProfileId = body.executionProfileId as Hash;
+        const manualAuthority = Object.freeze({
+          semanticDecisionAuthority: false as const,
+          certificateAuthority: false as const,
+          tradingExecutionAuthority: false as const,
+          externalWriteAuthority: false as const,
+          valueMovingAuthority: false as const,
+          liveExecutionEnabled: false as const,
+        });
         if (body.mode === "PREVIEW") {
+          const preview = agentCampaignDispatcher.previewManual(
+            taskId,
+            executionProfileId,
+          );
           writeJson(response, 200, {
             ok: true,
             mode: "PREVIEW" as const,
             preview,
+            binding: buildAgentManualRunPreviewBinding(preview),
             providerRequestsStarted: 0 as const,
             modelInvocationsStarted: 0 as const,
             writesStarted: 0 as const,
             runsCreated: 0 as const,
             executionAuthority: false as const,
-            externalWriteAuthority: false as const,
-            valueMovingAuthority: false as const,
+            researchRunDispatchAuthorityConsumed: false as const,
+            providerOrModelWorkMayStart: false as const,
+            ...manualAuthority,
           });
         } else {
-          const dispatched = agentCampaignDispatcher.dispatchManual(
-            manualAgentRunMatch[1] as Hash,
-            body.executionProfileId as Hash,
-            body.authorizationRef as string,
-          );
-          void broadcastProjection();
-          void dispatched.completion.then(
-            () => reconcileAfterAgentTaskCompletion(dispatched.run.taskId),
-            () => reconcileAfterAgentTaskCompletion(dispatched.run.taskId),
-          );
-          writeJson(response, 202, {
-            ok: true,
-            run: dispatched.run,
-            preview,
-            externalWriteAuthority: false,
-            valueMovingAuthority: false,
-          });
+          const keys = Object.keys(body).sort();
+          if (
+            keys.length !== 4 ||
+            keys[0] !== "authorizationRef" ||
+            keys[1] !== "executionProfileId" ||
+            keys[2] !== "mode" ||
+            keys[3] !== "previewRef" ||
+            typeof body.previewRef !== "string" ||
+            typeof body.authorizationRef !== "string"
+          ) {
+            throw new Error("manual Agent run request is malformed");
+          }
+          const retainedSnapshot = agentExecutionRegistry.snapshot();
+          const retained = retainedSnapshot.runs
+            .filter((run) => run.authorization.kind === "MANUAL" &&
+              run.authorization.authorizationRef === body.authorizationRef)
+            .sort((left, right) =>
+              left.createdAt.localeCompare(right.createdAt) ||
+              left.runId.localeCompare(right.runId)
+            );
+          if (retained.some((run) =>
+            run.taskId !== taskId || run.executionProfileId !== executionProfileId
+          )) {
+            throw new Error(
+              "manual authorizationRef is already bound to another task or execution profile",
+            );
+          }
+          const existing = retained[0];
+          if (existing !== undefined) {
+            if (retained.length !== 1) {
+              throw new Error(
+                "manual authorizationRef is bound to more than one retained run",
+              );
+            }
+            const bindingAnnotation = retainedSnapshot.runAnnotations.find((item) =>
+              item.runId === existing.runId &&
+              item.category === "MANUAL_PREVIEW_BINDING"
+            );
+            if (
+              bindingAnnotation === undefined ||
+              bindingAnnotation.sourceRecordRef !== `manual-preview:${body.previewRef}`
+            ) {
+              throw new Error(
+                "manual authorizationRef is not bound to the requested previewRef",
+              );
+            }
+            writeJson(response, 200, {
+              ok: true,
+              mode: "EXECUTE" as const,
+              reused: true as const,
+              run: existing,
+              previewRef: body.previewRef,
+              dispatchStartedByRequest: false as const,
+              runCreatedByRequest: false as const,
+              executionAuthority: false as const,
+              researchRunDispatchAuthorityConsumed: false as const,
+              providerOrModelWorkMayStart: false as const,
+              ...manualAuthority,
+            });
+          } else {
+            const preview = agentCampaignDispatcher.previewManual(
+              taskId,
+              executionProfileId,
+            );
+            const binding = currentManualRunPreviewBinding(preview, body.previewRef);
+            const dispatched = agentCampaignDispatcher.dispatchManual(
+              taskId,
+              executionProfileId,
+              body.authorizationRef,
+            );
+            agentExecutionRegistry.saveBatch({
+              runAnnotations: [buildAgentRunAnnotation({
+                run: dispatched.run,
+                category: "MANUAL_PREVIEW_BINDING",
+                sourceRecordRef: `manual-preview:${binding.previewRef}`,
+                observedFacts: binding,
+                note: "Manual Agent run authorization is bound to this exact preview.",
+                createdAt: dispatched.run.createdAt,
+              })],
+            });
+            void broadcastProjection();
+            void dispatched.completion.then(
+              () => reconcileAfterAgentTaskCompletion(dispatched.run.taskId),
+              () => reconcileAfterAgentTaskCompletion(dispatched.run.taskId),
+            );
+            writeJson(response, 202, {
+              ok: true,
+              mode: "EXECUTE" as const,
+              reused: false as const,
+              run: dispatched.run,
+              binding,
+              previewRef: binding.previewRef,
+              preview,
+              dispatchStartedByRequest: true as const,
+              runCreatedByRequest: true as const,
+              executionAuthority: true as const,
+              researchRunDispatchAuthorityConsumed: true as const,
+              providerOrModelWorkMayStart: true as const,
+              ...manualAuthority,
+            });
+          }
         }
       } catch (error) {
         writeJson(response, 409, {
           ok: false,
           diagnostic: error instanceof Error ? error.message : "manual Agent run failed",
+          semanticDecisionAuthority: false,
+          certificateAuthority: false,
+          executionAuthority: false,
+          researchRunDispatchAuthorityConsumed: false,
+          providerOrModelWorkMayStart: false,
+          tradingExecutionAuthority: false,
           externalWriteAuthority: false,
           valueMovingAuthority: false,
+          liveExecutionEnabled: false,
         });
       }
       return;
