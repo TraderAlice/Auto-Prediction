@@ -5506,22 +5506,24 @@ footer span:first-child {
 .preflight-disposition-facts span,
 .preflight-disposition-facts strong {
   display: block;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .preflight-disposition-facts span {
   color: #685c51;
   font-size: 12px;
   text-transform: uppercase;
+  overflow: visible;
+  white-space: normal;
 }
 
 .preflight-disposition-facts strong {
   margin-top: 5px;
+  overflow: hidden;
   color: #c28f62;
   font-family: inherit;
   font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .preflight-disposition > code {
@@ -6006,7 +6008,7 @@ footer span:first-child {
   padding-bottom: 0;
 }
 
-.preflight-stage > span {
+.preflight-stage-index {
   display: grid;
   width: 22px;
   height: 22px;
@@ -6018,7 +6020,7 @@ footer span:first-child {
   font-size: 12px;
 }
 
-.preflight-stage > span.is-blocked {
+.preflight-stage-index.is-blocked {
   border-color: rgba(213, 161, 110, 0.18);
   color: #d5a16e;
 }
