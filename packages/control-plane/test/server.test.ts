@@ -7,6 +7,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { hashCanonical } from "@pmh/domain";
 import {
   AiRuntimeConfigurationDesk,
+  AgentCampaignDispatcher,
+  AgentCredentialBroker,
   AgentExecutionRegistry,
   activateAgentCampaign,
   AnonymousSimulationMaterializerDesk,
@@ -18,6 +20,7 @@ import {
   buildStudioProjectionSnapshot,
   buildAgentTask,
   buildAgentRun,
+  buildDefaultAgentRuntimePortfolio,
   buildMarketCorpusSnapshot,
   buildPausedAgentCampaign,
   buildWorldRelationEntityRoleAssertion,
@@ -608,6 +611,242 @@ describe("control-plane HTTP surface", () => {
     expect(workspace.targets.allocationProjectionIdentity).toBe(
       workspace.attention.projectionIdentity,
     );
+  });
+
+  it("binds one research-action target inspect and fails closed when missing", async () => {
+    const missingId = `sha256:${"0".repeat(64)}`;
+    const { baseUrl } = await listenControlPlane();
+    const missing = await fetch(`${baseUrl}/api/v1/agent-operator/targets/${missingId}`);
+    expect(missing.status).toBe(404);
+    expect(missing.headers.get("cache-control")).toBe("no-store");
+    const missingBody = await missing.json() as Record<string, unknown>;
+    expect(missingBody).toMatchObject({
+      ok: false,
+      diagnostic: `research-action target ${missingId} was not found`,
+      providerRequestsStartedByRead: 0,
+      modelInvocationsStartedByRead: 0,
+      fetchesStartedByRead: 0,
+      writesStartedByRead: 0,
+      runsCreatedByRead: 0,
+      automaticDispatch: false,
+      semanticDecisionAuthority: false,
+      certificateAuthority: false,
+      executionAuthority: false,
+      externalWriteAuthority: false,
+      valueMovingAuthority: false,
+    });
+    expect(missingBody).not.toHaveProperty("target");
+    expect(missingBody).not.toHaveProperty("execution");
+    expect(JSON.stringify(missingBody)).not.toMatch(/worldStateMechanisms|families|listings/);
+
+    const routing = await fetch(`${baseUrl}/api/v1/agent-workspace/routing`)
+      .then((response) => response.json()) as {
+        targets: { nextTargets: Array<{ targetId: string }> };
+      };
+    expect(routing.targets.nextTargets).toEqual([]);
+  });
+
+  it("binds one Agent task inspect to exact identity, readiness, and that task's runs", async () => {
+    const registry = new AgentExecutionRegistry();
+    const retained = buildAgentTask({
+      kind: "RULE_EVIDENCE_CLAIM",
+      protocol: "RULE_EVIDENCE_TASK_V1",
+      inputArtifacts: [],
+      taskPayload: { fixture: "operator-task-inspect" },
+      requestedEffectProtocol: "RULE_EVIDENCE_TOOLS_V1",
+      provenanceRef: "fixture:operator-task-inspect",
+      priority: 1,
+      createdAt: "2026-08-20T10:00:00.000Z",
+    });
+    const other = buildAgentTask({
+      kind: "RULE_EVIDENCE_CLAIM",
+      protocol: "RULE_EVIDENCE_TASK_V1",
+      inputArtifacts: [],
+      taskPayload: { fixture: "operator-task-other" },
+      requestedEffectProtocol: "RULE_EVIDENCE_TOOLS_V1",
+      provenanceRef: "fixture:operator-task-other",
+      priority: 2,
+      createdAt: "2026-08-20T10:01:00.000Z",
+    });
+    registry.saveBatch({ tasks: [retained, other] });
+    const { baseUrl } = await listenControlPlane({ agentExecutionRegistry: registry });
+    const profile = registry.snapshot().executionProfiles.find((item) =>
+      item.profileKey === "rule-evidence-codex-app-server"
+    )!;
+    const retainedRun = completeAgentRun(
+      buildAgentRun({
+        task: retained,
+        executionProfile: profile,
+        runOrdinal: 1,
+        authorization: {
+          kind: "MANUAL",
+          authorizationRef: "operator:inspect-fixture",
+          authorizedAt: "2026-08-20T10:02:00.000Z",
+        },
+        createdAt: "2026-08-20T10:02:00.000Z",
+      }),
+      "FAILED",
+      "2026-08-20T10:03:00.000Z",
+      "fixture diagnostic only",
+    );
+    const otherRun = completeAgentRun(
+      buildAgentRun({
+        task: other,
+        executionProfile: profile,
+        runOrdinal: 1,
+        authorization: {
+          kind: "MANUAL",
+          authorizationRef: "operator:inspect-other",
+          authorizedAt: "2026-08-20T10:04:00.000Z",
+        },
+        createdAt: "2026-08-20T10:04:00.000Z",
+      }),
+      "FAILED",
+      "2026-08-20T10:05:00.000Z",
+      "other task must not leak",
+    );
+    registry.saveBatch({ runs: [retainedRun, otherRun] });
+
+    const missingId = `sha256:${"a".repeat(64)}`;
+    const missing = await fetch(`${baseUrl}/api/v1/agent-operator/tasks/${missingId}`);
+    expect(missing.status).toBe(404);
+    await expect(missing.json()).resolves.toMatchObject({
+      ok: false,
+      diagnostic: `Agent task ${missingId} was not found`,
+      providerRequestsStartedByRead: 0,
+      modelInvocationsStartedByRead: 0,
+      writesStartedByRead: 0,
+      runsCreatedByRead: 0,
+      executionAuthority: false,
+      externalWriteAuthority: false,
+      valueMovingAuthority: false,
+    });
+
+    const response = await fetch(
+      `${baseUrl}/api/v1/agent-operator/tasks/${retained.taskId}`,
+    );
+    expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    const text = await response.text();
+    expect(Buffer.byteLength(text)).toBeLessThan(16_000);
+    const body = JSON.parse(text) as {
+      schemaVersion: string;
+      task: { taskId: string };
+      readiness: { status: string };
+      compatibleExecutionProfiles: Array<{
+        executionProfileId: string;
+        profileKey: string;
+        automaticDispatch: boolean;
+      }>;
+      runs: Array<{ runId: string; status: string }>;
+      runsTruncated: boolean;
+    };
+    expect(body).toMatchObject({
+      schemaVersion: "pmh.agent-operator-task.v1",
+      task: { taskId: retained.taskId, kind: "RULE_EVIDENCE_CLAIM" },
+      readiness: { status: "HISTORICAL_ONLY" },
+      runs: [{
+        runId: retainedRun.runId,
+        status: "FAILED",
+        executionProfileId: profile.executionProfileId,
+        runOrdinal: 1,
+        terminalDiagnostic: "fixture diagnostic only",
+      }],
+      runsTruncated: false,
+      providerRequestsStartedByRead: 0,
+      modelInvocationsStartedByRead: 0,
+      fetchesStartedByRead: 0,
+      writesStartedByRead: 0,
+      runsCreatedByRead: 0,
+      automaticDispatch: false,
+      semanticDecisionAuthority: false,
+      certificateAuthority: false,
+      executionAuthority: false,
+      externalWriteAuthority: false,
+      valueMovingAuthority: false,
+    });
+    expect(body.compatibleExecutionProfiles).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        executionProfileId: profile.executionProfileId,
+        profileKey: "rule-evidence-codex-app-server",
+        automaticDispatch: false,
+      }),
+    ]));
+    expect(body.runs.map((item) => item.runId)).toEqual([retainedRun.runId]);
+    expect(text).not.toContain(otherRun.runId);
+    expect(body).not.toHaveProperty("execution");
+    expect(body).not.toHaveProperty("worldStateMechanisms");
+    expect(registry.snapshot().modelInvocations).toHaveLength(0);
+  });
+
+  it("previews one exact Agent task without creating a run or model invocation", async () => {
+    const registry = new AgentExecutionRegistry();
+    const configurationDesk = new AiRuntimeConfigurationDesk(
+      { PMH_DISCOVERY_PROVIDER: "codex" },
+      undefined,
+      () => Date.parse("2026-08-20T11:00:00.000Z"),
+    );
+    const configuration = configurationDesk.current();
+    registry.saveBatch(buildDefaultAgentRuntimePortfolio(configuration));
+    const task = buildAgentTask({
+      kind: "RELATION_DISCOVERY",
+      protocol: "RELATION_DISCOVERY_TASK_V4",
+      inputArtifacts: [],
+      taskPayload: { fixture: "operator-preview" },
+      requestedEffectProtocol: "RELATION_DISCOVERY_AGENT_TOOLS_V1",
+      provenanceRef: "fixture:operator-preview",
+      priority: 1,
+      createdAt: "2026-08-20T11:01:00.000Z",
+    });
+    registry.saveBatch({ tasks: [task] });
+    const profile = registry.snapshot().executionProfiles.find((item) =>
+      item.profileKey === "relation-discovery-codex-app-server"
+    )!;
+    const dispatcher = new AgentCampaignDispatcher({
+      registry,
+      credentialBroker: new AgentCredentialBroker([]),
+      adapters: [],
+      toolHost: {
+        manifest: () => Object.freeze([]),
+        execute: async () => Object.freeze({ status: "REJECTED" as const, output: {} }),
+      },
+      taskPayload: () => Object.freeze({ fixture: "not-read-during-preview" }),
+    });
+    const { baseUrl } = await listenControlPlane({
+      agentExecutionRegistry: registry,
+      agentCampaignDispatcher: dispatcher,
+      aiRuntimeConfigurationDesk: configurationDesk,
+    });
+    const before = registry.snapshot();
+    const response = await fetch(`${baseUrl}/api/v1/agent-tasks/${task.taskId}/runs`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        mode: "PREVIEW",
+        executionProfileId: profile.executionProfileId,
+      }),
+    });
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      ok: true,
+      mode: "PREVIEW",
+      preview: {
+        task: { taskId: task.taskId },
+        executionProfile: { executionProfileId: profile.executionProfileId },
+        providerRequestsStarted: 0,
+      },
+      providerRequestsStarted: 0,
+      modelInvocationsStarted: 0,
+      writesStarted: 0,
+      runsCreated: 0,
+      executionAuthority: false,
+      externalWriteAuthority: false,
+      valueMovingAuthority: false,
+    });
+    const after = registry.snapshot();
+    expect(after.runs).toEqual(before.runs);
+    expect(after.modelInvocations).toEqual(before.modelInvocations);
+    expect(after.toolEffects).toEqual(before.toolEffects);
   });
 
   it("allows incremented loopback Studio origins without reflecting remote origins", async () => {

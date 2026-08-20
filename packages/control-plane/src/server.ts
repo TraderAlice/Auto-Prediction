@@ -6739,6 +6739,125 @@ export function createControlPlane(options?: {
       }), { "cache-control": "no-store" });
       return;
     }
+    const operatorTargetMatch = url.pathname.match(
+      /^\/api\/v1\/agent-operator\/targets\/(sha256:[0-9a-f]{64})$/u,
+    );
+    if (request.method === "GET" && operatorTargetMatch !== null) {
+      await ready;
+      const research = currentResearchActionState();
+      const targetId = operatorTargetMatch[1] as Hash;
+      const target = research.targets.targets.find((item) => item.targetId === targetId);
+      const operatorReadEffects = Object.freeze({
+        providerRequestsStartedByRead: 0 as const,
+        modelInvocationsStartedByRead: 0 as const,
+        fetchesStartedByRead: 0 as const,
+        writesStartedByRead: 0 as const,
+        runsCreatedByRead: 0 as const,
+        automaticDispatch: false as const,
+        semanticDecisionAuthority: false as const,
+        certificateAuthority: false as const,
+        executionAuthority: false as const,
+        externalWriteAuthority: false as const,
+        valueMovingAuthority: false as const,
+      });
+      if (target === undefined) {
+        writeJson(response, 404, Object.freeze({
+          ok: false as const,
+          diagnostic: `research-action target ${targetId} was not found`,
+          ...operatorReadEffects,
+        }), { "cache-control": "no-store" });
+        return;
+      }
+      writeJson(response, 200, Object.freeze({
+        schemaVersion: "pmh.agent-operator-target.v1" as const,
+        target,
+        allocationAction: research.allocation.portfolio.find((item) =>
+          item.actionId === target.allocationActionId
+        ) ?? null,
+        ...operatorReadEffects,
+      }), { "cache-control": "no-store" });
+      return;
+    }
+    const operatorTaskMatch = url.pathname.match(
+      /^\/api\/v1\/agent-operator\/tasks\/(sha256:[0-9a-f]{64})$/u,
+    );
+    if (request.method === "GET" && operatorTaskMatch !== null) {
+      await ready;
+      const snapshot = agentExecutionRegistry.snapshot();
+      const taskId = operatorTaskMatch[1] as Hash;
+      const task = snapshot.tasks.find((item) => item.taskId === taskId);
+      const operatorReadEffects = Object.freeze({
+        providerRequestsStartedByRead: 0 as const,
+        modelInvocationsStartedByRead: 0 as const,
+        fetchesStartedByRead: 0 as const,
+        writesStartedByRead: 0 as const,
+        runsCreatedByRead: 0 as const,
+        automaticDispatch: false as const,
+        semanticDecisionAuthority: false as const,
+        certificateAuthority: false as const,
+        executionAuthority: false as const,
+        externalWriteAuthority: false as const,
+        valueMovingAuthority: false as const,
+      });
+      if (task === undefined) {
+        writeJson(response, 404, Object.freeze({
+          ok: false as const,
+          diagnostic: `Agent task ${taskId} was not found`,
+          ...operatorReadEffects,
+        }), { "cache-control": "no-store" });
+        return;
+      }
+      const latestRoutesByKey = new Map<string, (typeof snapshot.workloadRoutes)[number]>();
+      for (const route of snapshot.workloadRoutes) {
+        if (route.taskKind !== task.kind) continue;
+        const current = latestRoutesByKey.get(route.routeKey);
+        if (current === undefined || route.revision > current.revision) {
+          latestRoutesByKey.set(route.routeKey, route);
+        }
+      }
+      const compatibleExecutionProfiles = Object.freeze([...latestRoutesByKey.values()]
+        .sort((left, right) => left.routeKey.localeCompare(right.routeKey) ||
+          left.workloadRouteId.localeCompare(right.workloadRouteId))
+        .flatMap((route) => {
+          const profile = snapshot.executionProfiles.find((item) =>
+            item.executionProfileId === route.executionProfileId
+          );
+          return profile === undefined ? [] : [Object.freeze({
+            executionProfileId: profile.executionProfileId,
+            profileKey: profile.profileKey,
+            revision: profile.revision,
+            workloadRouteId: route.workloadRouteId,
+            routeKey: route.routeKey,
+            toolProtocol: profile.toolPolicy.protocol,
+            runBudget: profile.runBudget,
+            automaticDispatch: false as const,
+          })];
+        }));
+      const matchingRuns = snapshot.runs.filter((item) => item.taskId === taskId)
+        .sort((left, right) =>
+          right.createdAt.localeCompare(left.createdAt) ||
+          left.runId.localeCompare(right.runId)
+        );
+      const runSummaries = matchingRuns.slice(0, 12).map((run) => Object.freeze({
+        runId: run.runId,
+        status: run.status,
+        executionProfileId: run.executionProfileId,
+        runOrdinal: run.runOrdinal,
+        createdAt: run.createdAt,
+        completedAt: run.completedAt,
+        terminalDiagnostic: run.terminalDiagnostic,
+      }));
+      writeJson(response, 200, Object.freeze({
+        schemaVersion: "pmh.agent-operator-task.v1" as const,
+        task,
+        readiness: agentTaskReadiness(task),
+        compatibleExecutionProfiles,
+        runs: Object.freeze(runSummaries),
+        runsTruncated: matchingRuns.length > runSummaries.length,
+        ...operatorReadEffects,
+      }), { "cache-control": "no-store" });
+      return;
+    }
     if (
       request.method === "GET" &&
       url.pathname === "/api/v1/discovery-execution-capability"
@@ -8669,7 +8788,18 @@ export function createControlPlane(options?: {
           body.executionProfileId as Hash,
         );
         if (body.mode === "PREVIEW") {
-          writeJson(response, 200, { ok: true, preview });
+          writeJson(response, 200, {
+            ok: true,
+            mode: "PREVIEW" as const,
+            preview,
+            providerRequestsStarted: 0 as const,
+            modelInvocationsStarted: 0 as const,
+            writesStarted: 0 as const,
+            runsCreated: 0 as const,
+            executionAuthority: false as const,
+            externalWriteAuthority: false as const,
+            valueMovingAuthority: false as const,
+          });
         } else {
           const dispatched = agentCampaignDispatcher.dispatchManual(
             manualAgentRunMatch[1] as Hash,

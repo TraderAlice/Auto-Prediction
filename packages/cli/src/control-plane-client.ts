@@ -50,6 +50,8 @@ export async function requestControlPlaneJson(
   path: `/${string}`,
   options: ControlPlaneClientOptions & Readonly<{
     acceptedStatuses?: readonly number[];
+    method?: "GET" | "POST";
+    body?: unknown;
   }> = {},
 ): Promise<Readonly<{ baseUrl: string; status: number; value: unknown }>> {
   const baseUrl = normalizedBaseUrl(
@@ -64,12 +66,22 @@ export async function requestControlPlaneJson(
     );
   }
 
+  const method = options.method ?? "GET";
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   let response: Response;
   try {
     response = await (options.fetchImpl ?? fetch)(`${baseUrl}${path}`, {
-      headers: { accept: "application/json" },
+      method,
+      headers: method === "POST"
+        ? Object.freeze({
+            accept: "application/json",
+            "content-type": "application/json",
+          })
+        : Object.freeze({ accept: "application/json" }),
+      ...(method === "POST"
+        ? { body: JSON.stringify(options.body ?? {}) }
+        : {}),
       signal: controller.signal,
     });
   } catch (error) {

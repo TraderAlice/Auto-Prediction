@@ -11,6 +11,9 @@ export const SUPPORTED_COMMANDS = Object.freeze([
   "system status",
   "control status",
   "agent workspace",
+  "agent target inspect <target-id>",
+  "agent task inspect <task-id>",
+  "agent task preview <task-id> <execution-profile-id>",
   "venue list",
   "venue inspect <venue-id>",
 ] as const);
@@ -38,6 +41,24 @@ const COMMAND_CATALOG = Object.freeze([
     command: "agent workspace",
     kind: "CONTROL_PLANE_READ",
     description: "Read a compact routing view of Agent work and execution state.",
+    requiresControlPlane: true,
+  }),
+  Object.freeze({
+    command: "agent target inspect <target-id>",
+    kind: "CONTROL_PLANE_READ",
+    description: "Inspect one research-action target by exact target identity.",
+    requiresControlPlane: true,
+  }),
+  Object.freeze({
+    command: "agent task inspect <task-id>",
+    kind: "CONTROL_PLANE_READ",
+    description: "Inspect one Agent task, its readiness, and previewable profiles.",
+    requiresControlPlane: true,
+  }),
+  Object.freeze({
+    command: "agent task preview <task-id> <execution-profile-id>",
+    kind: "CONTROL_PLANE_PREVIEW",
+    description: "Preview a manual Agent run without creating a run or calling a model.",
     requiresControlPlane: true,
   }),
   Object.freeze({
@@ -70,13 +91,37 @@ function numberValue(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
-function malformedControlPlaneEnvelope(
+function hashValue(value: string): boolean {
+  return /^sha256:[0-9a-f]{64}$/u.test(value);
+}
+
+function invalidIdentityEnvelope(
   command: string,
-  path: string,
+  args: readonly string[],
+  label: string,
 ): CliEnvelope {
   return createCliEnvelope({
     command,
-    arguments: [],
+    arguments: args,
+    state: null,
+    diagnostics: [{
+      severity: "ERROR",
+      code: "CLI_ARGUMENT_INVALID",
+      message: `${label} must be an exact sha256 identity.`,
+    }],
+    allowedNextActions: ["agent workspace", "help"],
+    ok: false,
+  });
+}
+
+function malformedControlPlaneEnvelope(
+  command: string,
+  path: string,
+  args: readonly string[] = [],
+): CliEnvelope {
+  return createCliEnvelope({
+    command,
+    arguments: args,
     state: null,
     diagnostics: [{
       severity: "ERROR",
@@ -91,6 +136,7 @@ function malformedControlPlaneEnvelope(
 function controlPlaneFailure(
   command: string,
   error: unknown,
+  args: readonly string[] = [],
 ): CliEnvelope {
   const diagnostic = error instanceof ControlPlaneRequestError
     ? error
@@ -100,7 +146,7 @@ function controlPlaneFailure(
     );
   return createCliEnvelope({
     command,
-    arguments: [],
+    arguments: args,
     state: null,
     diagnostics: [{
       severity: "ERROR",
@@ -110,6 +156,155 @@ function controlPlaneFailure(
     allowedNextActions: ["control status", "help"],
     ok: false,
   });
+}
+
+function hasLiteralFalseAuthority(value: JsonObject, keys: readonly string[]): boolean {
+  return keys.every((key) => value[key] === false);
+}
+
+function hasZeroOperatorReadEffects(value: JsonObject): boolean {
+  return value.providerRequestsStartedByRead === 0 &&
+    value.modelInvocationsStartedByRead === 0 &&
+    value.fetchesStartedByRead === 0 &&
+    value.writesStartedByRead === 0 &&
+    value.runsCreatedByRead === 0 &&
+    value.automaticDispatch === false &&
+    hasLiteralFalseAuthority(value, [
+      "semanticDecisionAuthority",
+      "certificateAuthority",
+      "executionAuthority",
+      "externalWriteAuthority",
+      "valueMovingAuthority",
+    ]);
+}
+
+function validateAgentOperatorTarget(value: unknown, targetId: string) {
+  const document = objectValue(value);
+  const target = objectValue(document?.target);
+  const allocationAction = document?.allocationAction === null
+    ? null
+    : objectValue(document?.allocationAction);
+  const manualOperation = objectValue(target?.manualOperation);
+  if (
+    document?.schemaVersion !== "pmh.agent-operator-target.v1" ||
+    target?.schemaVersion !== "pmh.research-action-target.v1" ||
+    target.targetId !== targetId ||
+    manualOperation === null ||
+    typeof manualOperation.available !== "boolean" ||
+    typeof manualOperation.kind !== "string" ||
+    (manualOperation.kind === "RELATION_DISCOVERY_TASK" && (
+      manualOperation.available !== true ||
+      typeof manualOperation.targetId !== "string" ||
+      manualOperation.targetId !== target.sourceTaskId
+    )) ||
+    !hasZeroOperatorReadEffects(document) ||
+    !hasLiteralFalseAuthority(target, [
+      "automaticDispatch",
+      "modelInvocationAuthority",
+      "providerRequestAuthority",
+      "fetchAuthority",
+      "campaignAuthority",
+      "semanticDecisionAuthority",
+      "certificateAuthority",
+      "executionAuthority",
+      "externalWriteAuthority",
+      "valueMovingAuthority",
+    ]) ||
+    allocationAction === null ||
+    (
+      allocationAction.schemaVersion !== "pmh.research-attention-allocation-action.v2" ||
+      allocationAction.actionId !== target.allocationActionId ||
+      !hasLiteralFalseAuthority(allocationAction, [
+        "modelInvocationAuthority",
+        "campaignAuthority",
+        "executionAuthority",
+        "externalWriteAuthority",
+        "valueMovingAuthority",
+      ])
+    )
+  ) return null;
+  return Object.freeze({ document, target, allocationAction, manualOperation });
+}
+
+function validateAgentOperatorTask(value: unknown, taskId: string) {
+  const document = objectValue(value);
+  const task = objectValue(document?.task);
+  const readiness = objectValue(document?.readiness);
+  const authority = objectValue(task?.authority);
+  const profiles = Array.isArray(document?.compatibleExecutionProfiles)
+    ? document.compatibleExecutionProfiles
+    : null;
+  const runs = Array.isArray(document?.runs) ? document.runs : null;
+  if (
+    document?.schemaVersion !== "pmh.agent-operator-task.v1" ||
+    task?.schemaVersion !== "pmh.agent-task.v1" ||
+    task.taskId !== taskId ||
+    readiness === null ||
+    !["RUNNABLE", "SUPERSEDED_INPUT", "HISTORICAL_ONLY"].includes(
+      String(readiness.status),
+    ) ||
+    authority?.modelInvocations !== false ||
+    authority.externalWrites !== false ||
+    authority.semanticDecision !== false ||
+    authority.certificatePublication !== false ||
+    authority.valueMovingActions !== false ||
+    !hasZeroOperatorReadEffects(document) ||
+    profiles === null ||
+    runs === null ||
+    !profiles.every((item) => {
+      const profile = objectValue(item);
+      return profile !== null &&
+        typeof profile.executionProfileId === "string" &&
+        profile.automaticDispatch === false;
+    })
+  ) return null;
+  return Object.freeze({
+    document,
+    task,
+    readiness,
+    compatibleExecutionProfiles: profiles.flatMap((item) => {
+      const profile = objectValue(item);
+      return profile === null || typeof profile.executionProfileId !== "string"
+        ? []
+        : [profile];
+    }),
+  });
+}
+
+function validateManualRunPreview(
+  value: unknown,
+  taskId: string,
+  executionProfileId: string,
+) {
+  const document = objectValue(value);
+  const preview = objectValue(document?.preview);
+  const task = objectValue(preview?.task);
+  const executionProfile = objectValue(preview?.executionProfile);
+  const authority = objectValue(task?.authority);
+  if (
+    document?.ok !== true ||
+    document.run !== undefined ||
+    preview === null ||
+    task?.schemaVersion !== "pmh.agent-task.v1" ||
+    task.taskId !== taskId ||
+    executionProfile?.schemaVersion !== "pmh.execution-profile.v1" ||
+    executionProfile.executionProfileId !== executionProfileId ||
+    preview.providerRequestsStarted !== 0 ||
+    document.providerRequestsStarted !== 0 ||
+    document.modelInvocationsStarted !== 0 ||
+    document.writesStarted !== 0 ||
+    document.runsCreated !== 0 ||
+    document.executionAuthority !== false ||
+    document.externalWriteAuthority !== false ||
+    document.valueMovingAuthority !== false ||
+    authority?.modelInvocations !== false ||
+    authority.externalWrites !== false ||
+    authority.semanticDecision !== false ||
+    authority.certificatePublication !== false ||
+    authority.valueMovingActions !== false ||
+    document.mode !== "PREVIEW"
+  ) return null;
+  return Object.freeze({ document, preview, task, executionProfile });
 }
 
 function validateAgentOperatorWorkspace(value: unknown) {
@@ -310,6 +505,164 @@ export async function runCli(
       });
     } catch (error) {
       return controlPlaneFailure("agent.workspace", error);
+    }
+  }
+
+  if (
+    namespace === "agent" &&
+    action === "target" &&
+    venueId === "inspect" &&
+    extra.length === 1 &&
+    extra[0] !== undefined
+  ) {
+    const targetId = extra[0];
+    if (!hashValue(targetId)) {
+      return invalidIdentityEnvelope(
+        "agent.target.inspect",
+        [targetId],
+        "target-id",
+      );
+    }
+    const path = `/api/v1/agent-operator/targets/${targetId}` as `/${string}`;
+    try {
+      const result = await requestControlPlaneJson(path, options);
+      const inspected = validateAgentOperatorTarget(result.value, targetId);
+      if (inspected === null) {
+        return malformedControlPlaneEnvelope("agent.target.inspect", path, [targetId]);
+      }
+      const linkedTaskId = inspected.manualOperation?.kind === "RELATION_DISCOVERY_TASK"
+          && inspected.manualOperation.available === true
+        ? stringValue(inspected.manualOperation.targetId)
+        : null;
+      return createCliEnvelope({
+        command: "agent.target.inspect",
+        arguments: [targetId],
+        state: Object.freeze({
+          ...inspected.document,
+          controlPlaneUrl: result.baseUrl,
+        }),
+        allowedNextActions: Object.freeze([
+          ...(linkedTaskId === null
+            ? []
+            : [`agent task inspect ${linkedTaskId}`]),
+          "agent workspace",
+          "help",
+        ]),
+        ok: true,
+      });
+    } catch (error) {
+      return controlPlaneFailure("agent.target.inspect", error, [targetId]);
+    }
+  }
+
+  if (
+    namespace === "agent" &&
+    action === "task" &&
+    venueId === "inspect" &&
+    extra.length === 1 &&
+    extra[0] !== undefined
+  ) {
+    const taskId = extra[0];
+    if (!hashValue(taskId)) {
+      return invalidIdentityEnvelope("agent.task.inspect", [taskId], "task-id");
+    }
+    const path = `/api/v1/agent-operator/tasks/${taskId}` as `/${string}`;
+    try {
+      const result = await requestControlPlaneJson(path, options);
+      const inspected = validateAgentOperatorTask(result.value, taskId);
+      if (inspected === null) {
+        return malformedControlPlaneEnvelope("agent.task.inspect", path, [taskId]);
+      }
+      const previewActions = inspected.readiness.status === "RUNNABLE"
+        ? [...new Set(inspected.compatibleExecutionProfiles.map((profile) =>
+            `agent task preview ${taskId} ${String(profile.executionProfileId)}`
+          ))]
+        : [];
+      return createCliEnvelope({
+        command: "agent.task.inspect",
+        arguments: [taskId],
+        state: Object.freeze({
+          ...inspected.document,
+          controlPlaneUrl: result.baseUrl,
+        }),
+        allowedNextActions: Object.freeze([
+          ...previewActions,
+          "agent workspace",
+          "help",
+        ]),
+        ok: true,
+      });
+    } catch (error) {
+      return controlPlaneFailure("agent.task.inspect", error, [taskId]);
+    }
+  }
+
+  if (
+    namespace === "agent" &&
+    action === "task" &&
+    venueId === "preview" &&
+    extra.length === 2 &&
+    extra[0] !== undefined &&
+    extra[1] !== undefined
+  ) {
+    const taskId = extra[0];
+    const executionProfileId = extra[1];
+    if (!hashValue(taskId) || !hashValue(executionProfileId)) {
+      return invalidIdentityEnvelope(
+        "agent.task.preview",
+        [taskId, executionProfileId],
+        !hashValue(taskId) ? "task-id" : "execution-profile-id",
+      );
+    }
+    const path = `/api/v1/agent-tasks/${taskId}/runs` as `/${string}`;
+    try {
+      const result = await requestControlPlaneJson(path, {
+        ...options,
+        method: "POST",
+        body: Object.freeze({
+          mode: "PREVIEW",
+          executionProfileId,
+        }),
+      });
+      const previewed = validateManualRunPreview(
+        result.value,
+        taskId,
+        executionProfileId,
+      );
+      if (previewed === null) {
+        return malformedControlPlaneEnvelope("agent.task.preview", path, [
+          taskId,
+          executionProfileId,
+        ]);
+      }
+      return createCliEnvelope({
+        command: "agent.task.preview",
+        arguments: [taskId, executionProfileId],
+        state: Object.freeze({
+          mode: "PREVIEW" as const,
+          ok: true as const,
+          controlPlaneUrl: result.baseUrl,
+          preview: previewed.preview,
+          providerRequestsStarted: 0 as const,
+          modelInvocationsStarted: 0 as const,
+          writesStarted: 0 as const,
+          runsCreated: 0 as const,
+          executionAuthority: false as const,
+          externalWriteAuthority: false as const,
+          valueMovingAuthority: false as const,
+        }),
+        allowedNextActions: Object.freeze([
+          `agent task inspect ${taskId}`,
+          "agent workspace",
+          "help",
+        ]),
+        ok: true,
+      });
+    } catch (error) {
+      return controlPlaneFailure("agent.task.preview", error, [
+        taskId,
+        executionProfileId,
+      ]);
     }
   }
 
