@@ -423,6 +423,11 @@ describe("Agent campaign dispatcher", () => {
       maximumModelInvocations: 8,
       providerRequestsStarted: 0,
     });
+    expect(item.registry.snapshot()).toMatchObject({
+      runs: [],
+      modelInvocations: [],
+      toolEffects: [],
+    });
     const dispatched = item.dispatcher.dispatchManual(
       work.taskId,
       profile.executionProfileId,

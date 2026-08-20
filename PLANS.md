@@ -23,9 +23,11 @@ Auto Prediction now treats the internal research Agent and the external
 operator Agent as separate first-class layers. The first mainline slice makes
 `pmh` self-describing, connects it to startup readiness and a bounded Agent
 workspace, and preserves stable recovery diagnostics without copying
-control-plane verdict logic. The next slice must turn one exact routed target
-into a previewable external-Agent workflow and measure time/context to the first
-valid action.
+control-plane verdict logic. Exact target/task inspection and a zero-effect
+manual-run preview now complete the read-to-preview journey. The next slice
+must bind an explicit authorization/idempotency reference to that preview,
+execute the research run, and expose bounded run inspection/resume while
+measuring time/context to the first retained outcome.
 
 The product brand is **Auto Prediction**, paired conceptually with Auto Quant.
 The rename is presentation-only for now: `pmh` CLI, package scopes, environment

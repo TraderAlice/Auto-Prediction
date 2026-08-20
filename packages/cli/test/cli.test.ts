@@ -1,4 +1,4 @@
-import { createServer, type Server } from "node:http";
+import { createServer, type IncomingMessage, type Server } from "node:http";
 import { afterEach, describe, expect, it } from "vitest";
 import { CLI_SCHEMA_VERSION, runCli } from "../src/index.js";
 
@@ -32,6 +32,133 @@ function json(
   response.end(JSON.stringify(value));
 }
 
+async function readJsonBody(request: IncomingMessage): Promise<unknown> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of request) {
+    chunks.push(typeof chunk === "string" ? Buffer.from(chunk) : chunk);
+  }
+  return JSON.parse(Buffer.concat(chunks).toString("utf8")) as unknown;
+}
+
+const TARGET_ID = `sha256:${"1".repeat(64)}`;
+const TASK_ID = `sha256:${"2".repeat(64)}`;
+const PROFILE_ID = `sha256:${"3".repeat(64)}`;
+const OTHER_ID = `sha256:${"a".repeat(64)}`;
+
+const OPERATOR_READ_EFFECTS = Object.freeze({
+  providerRequestsStartedByRead: 0,
+  modelInvocationsStartedByRead: 0,
+  fetchesStartedByRead: 0,
+  writesStartedByRead: 0,
+  runsCreatedByRead: 0,
+  automaticDispatch: false,
+  semanticDecisionAuthority: false,
+  certificateAuthority: false,
+  executionAuthority: false,
+  externalWriteAuthority: false,
+  valueMovingAuthority: false,
+});
+
+const TASK_AUTHORITY = Object.freeze({
+  modelInvocations: false,
+  externalWrites: false,
+  semanticDecision: false,
+  certificatePublication: false,
+  valueMovingActions: false,
+});
+
+function operatorTarget(targetId: string) {
+  return {
+    schemaVersion: "pmh.agent-operator-target.v1",
+    target: {
+      schemaVersion: "pmh.research-action-target.v1",
+      targetId,
+      allocationActionId: `sha256:${"4".repeat(64)}`,
+      allocationActionKind: "EXPLORE_NEW_FAMILY",
+      sourceTaskId: TASK_ID,
+      state: "READY_RELATION_DISCOVERY",
+      diagnostic: "ready",
+      automaticDispatch: false,
+      modelInvocationAuthority: false,
+      providerRequestAuthority: false,
+      fetchAuthority: false,
+      campaignAuthority: false,
+      semanticDecisionAuthority: false,
+      certificateAuthority: false,
+      executionAuthority: false,
+      externalWriteAuthority: false,
+      valueMovingAuthority: false,
+      manualOperation: {
+        available: true,
+        kind: "RELATION_DISCOVERY_TASK",
+        targetId: TASK_ID,
+      },
+    },
+    allocationAction: {
+      schemaVersion: "pmh.research-attention-allocation-action.v2",
+      actionId: `sha256:${"4".repeat(64)}`,
+      kind: "EXPLORE_NEW_FAMILY",
+      modelInvocationAuthority: false,
+      campaignAuthority: false,
+      executionAuthority: false,
+      externalWriteAuthority: false,
+      valueMovingAuthority: false,
+    },
+    ...OPERATOR_READ_EFFECTS,
+  };
+}
+
+function operatorTask(taskId: string, profileId = PROFILE_ID) {
+  return {
+    schemaVersion: "pmh.agent-operator-task.v1",
+    task: {
+      schemaVersion: "pmh.agent-task.v1",
+      taskId,
+      kind: "RELATION_DISCOVERY",
+      authority: TASK_AUTHORITY,
+    },
+    readiness: { status: "RUNNABLE", diagnostic: "current", successorTaskId: null },
+    compatibleExecutionProfiles: [{
+      executionProfileId: profileId,
+      profileKey: "relation-discovery-codex-app-server",
+      automaticDispatch: false,
+    }],
+    runs: [],
+    runsTruncated: false,
+    ...OPERATOR_READ_EFFECTS,
+  };
+}
+
+function previewDocument(taskId: string, executionProfileId: string) {
+  return {
+    ok: true,
+    mode: "PREVIEW",
+    preview: {
+      task: {
+        schemaVersion: "pmh.agent-task.v1",
+        taskId,
+        kind: "RELATION_DISCOVERY",
+        authority: TASK_AUTHORITY,
+      },
+      executionProfile: {
+        schemaVersion: "pmh.execution-profile.v1",
+        executionProfileId,
+        profileKey: "relation-discovery-codex-app-server",
+      },
+      nextRunOrdinal: 1,
+      maximumModelInvocations: 12,
+      providerRequestsStarted: 0,
+    },
+    providerRequestsStarted: 0,
+    modelInvocationsStarted: 0,
+    writesStarted: 0,
+    runsCreated: 0,
+    executionAuthority: false,
+    externalWriteAuthority: false,
+    valueMovingAuthority: false,
+  };
+}
+
 describe("versioned CLI envelope", () => {
   it("discovers the exact command surface without a running control plane", async () => {
     const result = await runCli([]);
@@ -43,6 +170,11 @@ describe("versioned CLI envelope", () => {
       interface: "pmh.cli.v1",
     });
     expect(result.allowedNextActions).toContain("agent workspace");
+    expect(result.allowedNextActions).toContain("agent target inspect <target-id>");
+    expect(result.allowedNextActions).toContain("agent task inspect <task-id>");
+    expect(result.allowedNextActions).toContain(
+      "agent task preview <task-id> <execution-profile-id>",
+    );
   });
 
   it("reports the system's Node 22 baseline and live-disabled boundary", async () => {
@@ -245,6 +377,243 @@ describe("versioned CLI envelope", () => {
     expect(result.diagnostics[0]?.code).toBe(
       "CONTROL_PLANE_MALFORMED_RESPONSE",
     );
+  });
+
+  it("inspects one research-action target and fills the linked task command", async () => {
+    const baseUrl = await serve((request, response) => {
+      expect(request.method).toBe("GET");
+      expect(request.url).toBe(`/api/v1/agent-operator/targets/${TARGET_ID}`);
+      json(response, operatorTarget(TARGET_ID));
+    });
+    const result = await runCli(
+      ["agent", "target", "inspect", TARGET_ID],
+      { baseUrl },
+    );
+    expect(result.ok).toBe(true);
+    expect(result.identity).toEqual({
+      command: "agent.target.inspect",
+      arguments: [TARGET_ID],
+    });
+    expect(result.state).toMatchObject({
+      schemaVersion: "pmh.agent-operator-target.v1",
+      target: { targetId: TARGET_ID },
+      providerRequestsStartedByRead: 0,
+      executionAuthority: false,
+      valueMovingAuthority: false,
+    });
+    expect(result.allowedNextActions).toEqual([
+      `agent task inspect ${TASK_ID}`,
+      "agent workspace",
+      "help",
+    ]);
+    expect(result.effects).toEqual({
+      externalWrites: false,
+      valueMovingActions: false,
+      liveExecutionEnabled: false,
+    });
+  });
+
+  it("rejects a target inspect whose identity does not match the request", async () => {
+    const baseUrl = await serve((_request, response) =>
+      json(response, operatorTarget(OTHER_ID))
+    );
+    const result = await runCli(
+      ["agent", "target", "inspect", TARGET_ID],
+      { baseUrl },
+    );
+    expect(result.ok).toBe(false);
+    expect(result.diagnostics[0]?.code).toBe("CONTROL_PLANE_MALFORMED_RESPONSE");
+  });
+
+  it("rejects malformed exact identities before contacting the control plane", async () => {
+    let requested = false;
+    const result = await runCli(
+      ["agent", "target", "inspect", "../readiness"],
+      {
+        fetchImpl: async () => {
+          requested = true;
+          throw new Error("must not request");
+        },
+      },
+    );
+    expect(result.ok).toBe(false);
+    expect(result.diagnostics[0]).toMatchObject({
+      code: "CLI_ARGUMENT_INVALID",
+      message: "target-id must be an exact sha256 identity.",
+    });
+    expect(requested).toBe(false);
+  });
+
+  it("retains a target 404 as a stable HTTP diagnostic", async () => {
+    const baseUrl = await serve((request, response) => {
+      expect(request.url).toBe(`/api/v1/agent-operator/targets/${TARGET_ID}`);
+      json(response, {
+        ok: false,
+        diagnostic: `research-action target ${TARGET_ID} was not found`,
+      }, 404);
+    });
+    const result = await runCli(
+      ["agent", "target", "inspect", TARGET_ID],
+      { baseUrl },
+    );
+    expect(result.ok).toBe(false);
+    expect(result.diagnostics[0]).toMatchObject({
+      code: "CONTROL_PLANE_HTTP_ERROR",
+      message: expect.stringContaining(
+        `research-action target ${TARGET_ID} was not found`,
+      ),
+    });
+  });
+
+  it("inspects one Agent task and fills exact preview commands", async () => {
+    const baseUrl = await serve((request, response) => {
+      expect(request.method).toBe("GET");
+      expect(request.url).toBe(`/api/v1/agent-operator/tasks/${TASK_ID}`);
+      json(response, operatorTask(TASK_ID));
+    });
+    const result = await runCli(
+      ["agent", "task", "inspect", TASK_ID],
+      { baseUrl },
+    );
+    expect(result.ok).toBe(true);
+    expect(result.identity.command).toBe("agent.task.inspect");
+    expect(result.state).toMatchObject({
+      schemaVersion: "pmh.agent-operator-task.v1",
+      task: { taskId: TASK_ID },
+      compatibleExecutionProfiles: [{
+        executionProfileId: PROFILE_ID,
+        automaticDispatch: false,
+      }],
+      providerRequestsStartedByRead: 0,
+      modelInvocationsStartedByRead: 0,
+      writesStartedByRead: 0,
+    });
+    expect(result.allowedNextActions).toEqual([
+      `agent task preview ${TASK_ID} ${PROFILE_ID}`,
+      "agent workspace",
+      "help",
+    ]);
+  });
+
+  it("does not advertise preview for a non-runnable Agent task", async () => {
+    const baseUrl = await serve((_request, response) => json(response, {
+      ...operatorTask(TASK_ID),
+      readiness: {
+        status: "HISTORICAL_ONLY",
+        diagnostic: "task is retained evidence only",
+        successorTaskId: null,
+      },
+    }));
+    const result = await runCli(
+      ["agent", "task", "inspect", TASK_ID],
+      { baseUrl },
+    );
+    expect(result.ok).toBe(true);
+    expect(result.allowedNextActions).toEqual(["agent workspace", "help"]);
+  });
+
+  it("rejects a task inspect whose identity does not match the request", async () => {
+    const baseUrl = await serve((_request, response) =>
+      json(response, operatorTask(OTHER_ID))
+    );
+    const result = await runCli(
+      ["agent", "task", "inspect", TASK_ID],
+      { baseUrl },
+    );
+    expect(result.ok).toBe(false);
+    expect(result.diagnostics[0]?.code).toBe("CONTROL_PLANE_MALFORMED_RESPONSE");
+  });
+
+  it("retains a task 404 as a stable HTTP diagnostic", async () => {
+    const baseUrl = await serve((_request, response) => json(response, {
+      ok: false,
+      diagnostic: `Agent task ${TASK_ID} was not found`,
+    }, 404));
+    const result = await runCli(
+      ["agent", "task", "inspect", TASK_ID],
+      { baseUrl },
+    );
+    expect(result.ok).toBe(false);
+    expect(result.diagnostics[0]).toMatchObject({
+      code: "CONTROL_PLANE_HTTP_ERROR",
+      message: expect.stringContaining(`Agent task ${TASK_ID} was not found`),
+    });
+  });
+
+  it("previews a manual run without execute authority or a created run", async () => {
+    const baseUrl = await serve(async (request, response) => {
+      expect(request.method).toBe("POST");
+      expect(request.url).toBe(`/api/v1/agent-tasks/${TASK_ID}/runs`);
+      expect(await readJsonBody(request)).toEqual({
+        mode: "PREVIEW",
+        executionProfileId: PROFILE_ID,
+      });
+      json(response, previewDocument(TASK_ID, PROFILE_ID));
+    });
+    const result = await runCli(
+      ["agent", "task", "preview", TASK_ID, PROFILE_ID],
+      { baseUrl },
+    );
+    expect(result.ok).toBe(true);
+    expect(result.identity).toEqual({
+      command: "agent.task.preview",
+      arguments: [TASK_ID, PROFILE_ID],
+    });
+    expect(result.state).toMatchObject({
+      mode: "PREVIEW",
+      preview: {
+        task: { taskId: TASK_ID },
+        executionProfile: { executionProfileId: PROFILE_ID },
+        providerRequestsStarted: 0,
+      },
+      providerRequestsStarted: 0,
+      modelInvocationsStarted: 0,
+      writesStarted: 0,
+      runsCreated: 0,
+      executionAuthority: false,
+      externalWriteAuthority: false,
+      valueMovingAuthority: false,
+    });
+    expect(result.state).not.toHaveProperty("run");
+    expect(result.allowedNextActions).toEqual([
+      `agent task inspect ${TASK_ID}`,
+      "agent workspace",
+      "help",
+    ]);
+    expect(result.allowedNextActions.join(" ")).not.toMatch(/execute/i);
+    expect(result.effects.liveExecutionEnabled).toBe(false);
+  });
+
+  it("rejects a preview whose returned identities do not match the request", async () => {
+    const baseUrl = await serve(async (request, response) => {
+      await readJsonBody(request);
+      json(response, previewDocument(OTHER_ID, PROFILE_ID));
+    });
+    const result = await runCli(
+      ["agent", "task", "preview", TASK_ID, PROFILE_ID],
+      { baseUrl },
+    );
+    expect(result.ok).toBe(false);
+    expect(result.diagnostics[0]?.code).toBe("CONTROL_PLANE_MALFORMED_RESPONSE");
+  });
+
+  it("retains a preview 404 as a stable HTTP diagnostic", async () => {
+    const baseUrl = await serve(async (request, response) => {
+      expect(await readJsonBody(request)).toMatchObject({ mode: "PREVIEW" });
+      json(response, {
+        ok: false,
+        diagnostic: "Agent task is unavailable",
+      }, 404);
+    });
+    const result = await runCli(
+      ["agent", "task", "preview", TASK_ID, PROFILE_ID],
+      { baseUrl },
+    );
+    expect(result.ok).toBe(false);
+    expect(result.diagnostics[0]).toMatchObject({
+      code: "CONTROL_PLANE_HTTP_ERROR",
+      message: expect.stringContaining("Agent task is unavailable"),
+    });
   });
 
   it("inspects validated venue capability evidence", async () => {

@@ -19,11 +19,12 @@ the running product, distinguish an offline control plane from startup work, or
 obtain bounded routing state.
 
 Grok Build topic session `61394efb-bf73-45af-aac2-a995c46d2585` was retained
-for the non-frontend audit. Its initial read expanded beyond 100k tokens without
-producing a diff; the continuation and subsequent compaction request also
-stalled. This is negative usability evidence, not implementation evidence:
-long-lived external operator sessions need proactive context budgets and Git
-state remains the acceptance boundary.
+for the non-frontend audit and implementation. Its initial read expanded beyond
+100k tokens without producing a diff; a broad continuation exhausted its turn
+budget. Two later atomic continuations produced the bounded HTTP and CLI diffs
+and focused tests. This is operational evidence for topic-session reuse with
+strict per-turn scope: long-lived external operator sessions need proactive
+context budgets, and Git state remains the acceptance boundary.
 
 ## Selected direction
 
@@ -64,10 +65,19 @@ qualification, or verification verdict logic.
   in about 0.9 seconds with one JSON envelope on stdout.
 - Every envelope still declares external writes, value movement, and live
   execution as literal `false`.
+- Exact target and task reads are bounded first-party projections. Their CLI
+  validators reject identity drift, missing authority fields, and non-zero read
+  effects rather than inferring a safe result.
+- A runnable task emits its exact compatible profile and preview command;
+  historical tasks do not emit invalid actions. Manual preview binds both
+  identities while proving zero provider/model/write/run effects and grants no
+  execute authority.
 
 ## Next implementation frontier
 
-The machine surface can discover work but cannot yet complete a useful research
-workflow. The next mainline slice should expose exact inspection for one
-selected target/task and a preview-only manual run command, then test the whole
-journey with a fresh external Agent session under an explicit context budget.
+The machine surface can now discover, inspect, and preview exact work but cannot
+yet execute and follow a research run to a retained outcome. The next mainline
+slice should require a caller-supplied authorization/idempotency reference,
+execute only a previously previewed task/profile binding, expose bounded run
+inspection and wait/resume commands, and test the whole journey with a fresh
+external Agent session under an explicit context budget.

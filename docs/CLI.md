@@ -22,6 +22,9 @@ pnpm --silent pmh help
 pnpm --silent pmh system status
 pnpm --silent pmh control status
 pnpm --silent pmh agent workspace
+pnpm --silent pmh agent target inspect <target-id>
+pnpm --silent pmh agent task inspect <task-id>
+pnpm --silent pmh agent task preview <task-id> <execution-profile-id>
 pnpm --silent pmh venue list
 pnpm --silent pmh venue inspect <venue-id>
 ```
@@ -33,6 +36,26 @@ attention actions and research targets, relation-campaign eligibility, and
 discovery-cycle state. It retains exact task/action/target identities needed
 for later commands and never downloads the multi-megabyte Studio workspace or
 copies semantic or economic verdict logic into the CLI.
+
+Continue by following the exact commands in `allowedNextActions`. A routable
+relation-discovery target supplies its bound task identity; task inspection
+supplies only the execution profiles compatible with that task kind. A
+`RUNNABLE` task then supplies a fully populated preview command. Historical or
+superseded tasks remain inspectable evidence but do not advertise an invalid
+preview action.
+
+`agent task preview` posts `mode: PREVIEW` to the first-party manual-run route.
+The response binds the requested task and profile identities and explicitly
+reports zero provider requests, model invocations, writes, and created runs.
+It grants no execution authority and deliberately does not advertise an
+execute command. This makes the current machine journey:
+
+```text
+agent workspace
+  -> agent target inspect <exact-target-id>
+  -> agent task inspect <exact-task-id>
+  -> agent task preview <exact-task-id> <exact-profile-id>
+```
 
 The default control plane is `http://127.0.0.1:4100`. Override it for another
 local or tunneled environment without changing command output:
@@ -54,7 +77,7 @@ Agents should follow that field rather than guessing a route.
 
 Unknown commands and venue identities fail closed with a non-zero process exit code and a JSON diagnostic. The present CLI cannot write external state or move value; both effects are literal `false` in every response.
 
-Exact target/task inspection, previewable manual runs, campaign control,
+Authorized manual execution, exact run inspection/resume, campaign control,
 catalog refresh, claim/link inspection, opportunity verification,
 deterministic replay, shadow execution, and Core projections remain planned CLI
 surfaces. Human-readable Studio views and compact CLI views consume
