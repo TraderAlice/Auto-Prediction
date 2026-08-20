@@ -118,6 +118,23 @@ reported explicitly rather than silently falling back.
 For environment settings, persistent scheduling, provider selection, and
 smoke commands, read [Operations](docs/OPERATIONS.md).
 
+### External Agent quick start
+
+Studio is optional for machine operators. An external Agent can discover the
+versioned local surface, verify the control plane, and read bounded routing
+state without scraping the UI:
+
+```bash
+pnpm --silent pmh
+pnpm --silent pmh control status
+pnpm --silent pmh agent workspace
+```
+
+`--silent` keeps stdout to one JSON envelope; build diagnostics remain on
+stderr. Every command includes stable diagnostics and `allowedNextActions`.
+Follow those actions rather than guessing HTTP routes. See [CLI](docs/CLI.md)
+for endpoint overrides and failure semantics.
+
 ## First use
 
 1. Studio opens on **Discover**. Before spending model budget, open **System

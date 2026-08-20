@@ -565,6 +565,51 @@ describe("control-plane HTTP surface", () => {
     });
   });
 
+  it("serves a bounded external-Agent routing workspace", async () => {
+    const { baseUrl } = await listenControlPlane();
+    const response = await fetch(`${baseUrl}/api/v1/agent-workspace/routing`);
+    expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    const text = await response.text();
+    expect(Buffer.byteLength(text)).toBeLessThan(32_000);
+    const workspace = JSON.parse(text) as {
+      attention: { projectionIdentity: string };
+      targets: { allocationProjectionIdentity: string };
+    };
+    expect(workspace).toMatchObject({
+      schemaVersion: "pmh.agent-operator-workspace.v1",
+      execution: {
+        schemaVersion: "pmh.agent-execution-registry.v1",
+        credentialSecretTextRetained: false,
+      },
+      attention: {
+        schemaVersion: "pmh.research-attention-allocation.v1",
+        nextWork: [],
+        nextWorkTruncated: false,
+      },
+      targets: {
+        schemaVersion: "pmh.research-action-target-projection.v1",
+        nextTargets: [],
+        nextTargetsTruncated: false,
+      },
+      relationCampaign: {
+        schemaVersion: "pmh.relation-discovery-campaign-preview.v1",
+      },
+      discoveryCycle: { schemaVersion: "pmh.discovery-cycle.v1" },
+      providerRequestsStartedByRead: 0,
+      modelInvocationsStartedByRead: 0,
+      writesStartedByRead: 0,
+      automaticDispatch: false,
+      semanticDecisionAuthority: false,
+      certificateAuthority: false,
+      externalWriteAuthority: false,
+      valueMovingAuthority: false,
+    });
+    expect(workspace.targets.allocationProjectionIdentity).toBe(
+      workspace.attention.projectionIdentity,
+    );
+  });
+
   it("allows incremented loopback Studio origins without reflecting remote origins", async () => {
     const baseUrl = await listen();
 

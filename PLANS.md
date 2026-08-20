@@ -17,6 +17,16 @@ current empty-first-run navigation. Future audits for this topic should resume
 and compact that session, but Git state and command results—not Agent prose—are
 the acceptance evidence.
 
+The selected usability continuation is
+[`plans/external-agent-operator-surface.md`](plans/external-agent-operator-surface.md).
+Auto Prediction now treats the internal research Agent and the external
+operator Agent as separate first-class layers. The first mainline slice makes
+`pmh` self-describing, connects it to startup readiness and a bounded Agent
+workspace, and preserves stable recovery diagnostics without copying
+control-plane verdict logic. The next slice must turn one exact routed target
+into a previewable external-Agent workflow and measure time/context to the first
+valid action.
+
 The product brand is **Auto Prediction**, paired conceptually with Auto Quant.
 The rename is presentation-only for now: `pmh` CLI, package scopes, environment
 variables, and content-addressed protocol/schema identifiers remain stable

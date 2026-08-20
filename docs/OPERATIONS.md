@@ -30,10 +30,18 @@ Useful health checks:
 
 ```bash
 curl --fail http://127.0.0.1:4100/health
-pnpm pmh system status
-pnpm pmh venue list
-pnpm pmh venue inspect polymarket-global
+pnpm --silent pmh system status
+pnpm --silent pmh control status
+pnpm --silent pmh agent workspace
+pnpm --silent pmh venue list
+pnpm --silent pmh venue inspect polymarket-global
 ```
+
+The last commands are also the external-Agent quick start. With `--silent`,
+stdout contains one versioned JSON envelope and build diagnostics stay on
+stderr. `agent workspace` returns the bounded routing projection rather than
+the much larger Studio workspace. See [CLI](CLI.md) for its stable failure
+codes and endpoint override.
 
 ## Local state
 

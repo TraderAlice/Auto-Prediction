@@ -17,7 +17,7 @@
     "rule-evidence-claim:smoke": "pnpm --filter @pmh/control-plane smoke:rule-evidence-claim",
     "fixtures:capture": "node scripts/capture-public-fixtures.mjs",
     "fixtures:capture:streams": "node scripts/capture-public-stream-fixtures.mjs",
-    "pmh": "pnpm -r build && node packages/cli/dist/main.js",
+    "pmh": "pnpm --silent --filter @pmh/cli build && node packages/cli/dist/main.js",
     "studio": "node scripts/studio.mjs",
     "studio:build": "pnpm --filter @pmh/control-plane build && pnpm --filter @pmh/studio build",
     "test": "node --test scripts/studio-supervisor.test.mjs && pnpm -r test",
