@@ -6633,6 +6633,114 @@ export function createControlPlane(options?: {
     }
     if (
       request.method === "GET" &&
+      url.pathname === "/api/v1/agent-workspace/routing"
+    ) {
+      await ready;
+      const research = currentResearchActionState();
+      const snapshot = agentExecutionRegistry.snapshot();
+      const execution = agentExecutionRegistry.projection();
+      const relationCampaign = await relationDiscoveryCampaignPreview(
+        research.allocation,
+      );
+      const capabilityOutcomeCounts = Object.fromEntries(
+        [...new Set(snapshot.capabilityObservations.map((item) => item.outcome))]
+          .sort()
+          .map((outcome) => [
+            outcome,
+            snapshot.capabilityObservations.filter((item) =>
+              item.outcome === outcome
+            ).length,
+          ]),
+      );
+      const nextWork = research.allocation.portfolio.slice(0, 12).map((item) =>
+        Object.freeze({
+          actionId: item.actionId,
+          lane: item.lane,
+          kind: item.kind,
+          workItemId: item.workItemId,
+          taskId: item.taskId,
+          valueStage: item.valueStage,
+          dispatchableByRelationCampaign: item.dispatchableByRelationCampaign,
+        })
+      );
+      const nextTargets = research.targets.targets.slice(0, 12).map((item) =>
+        Object.freeze({
+          targetId: item.targetId,
+          allocationActionId: item.allocationActionId,
+          state: item.state,
+          downstreamSystem: item.downstreamSystem,
+          sourceTaskId: item.sourceTaskId,
+          currentJobId: item.currentJobId,
+          manualOperation: item.manualOperation,
+          diagnostic: item.diagnostic,
+        })
+      );
+      writeJson(response, 200, Object.freeze({
+        schemaVersion: "pmh.agent-operator-workspace.v1" as const,
+        observedAt: research.allocation.observedAt,
+        execution: Object.freeze({
+          schemaVersion: execution.schemaVersion,
+          runtimeDefinitionCount: execution.runtimeDefinitionCount,
+          executionProfileCount: execution.executionProfileCount,
+          taskCount: execution.taskCount,
+          runCount: execution.runCount,
+          activeCampaignCount: execution.activeCampaignCount,
+          capabilityObservationCount: execution.capabilityObservationCount,
+          capabilityOutcomeCounts: Object.freeze(capabilityOutcomeCounts),
+          credentialSecretTextRetained: false as const,
+        }),
+        attention: Object.freeze({
+          schemaVersion: research.allocation.schemaVersion,
+          projectionIdentity: research.allocation.projectionIdentity,
+          familyCount: research.allocation.familyCount,
+          actionableFamilyCount: research.allocation.actionableFamilyCount,
+          heldFamilyCount: research.allocation.heldFamilyCount,
+          laneCounts: research.allocation.laneCounts,
+          nextWork: Object.freeze(nextWork),
+          nextWorkTruncated: research.allocation.portfolio.length > nextWork.length,
+        }),
+        targets: Object.freeze({
+          schemaVersion: research.targets.schemaVersion,
+          projectionIdentity: research.targets.projectionIdentity,
+          allocationProjectionIdentity:
+            research.targets.allocationProjectionIdentity,
+          targetCount: research.targets.targetCount,
+          readyCount: research.targets.readyCount,
+          inFlightCount: research.targets.inFlightCount,
+          blockedNegativeSearchCount: research.targets.blockedNegativeSearchCount,
+          unresolvedCount: research.targets.unresolvedCount,
+          nextTargets: Object.freeze(nextTargets),
+          nextTargetsTruncated: research.targets.targets.length > nextTargets.length,
+        }),
+        relationCampaign: Object.freeze({
+          schemaVersion: relationCampaign.schemaVersion,
+          campaignKey: relationCampaign.campaignKey,
+          taskIds: relationCampaign.taskIds,
+          creationEligible: relationCampaign.creationEligible,
+          dispatchEligible: relationCampaign.dispatchEligible,
+          diagnostic: relationCampaign.diagnostic,
+        }),
+        discoveryCycle: Object.freeze({
+          schemaVersion: discoveryCycleState.schemaVersion,
+          enabled: discoveryCycleState.enabled,
+          intervalMs: discoveryCycleState.intervalMs,
+          tickCount: discoveryCycleState.tickCount,
+          lastCompletedAt: discoveryCycleState.lastCompletedAt,
+          lastDiagnostic: discoveryCycleState.lastDiagnostic,
+        }),
+        providerRequestsStartedByRead: 0 as const,
+        modelInvocationsStartedByRead: 0 as const,
+        writesStartedByRead: 0 as const,
+        automaticDispatch: false as const,
+        semanticDecisionAuthority: false as const,
+        certificateAuthority: false as const,
+        externalWriteAuthority: false as const,
+        valueMovingAuthority: false as const,
+      }), { "cache-control": "no-store" });
+      return;
+    }
+    if (
+      request.method === "GET" &&
       url.pathname === "/api/v1/discovery-execution-capability"
     ) {
       try {

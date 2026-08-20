@@ -294,3 +294,9 @@ starting a campaign. Catalog refresh is anonymous and does not call a model.
 Agent work begins only through an explicit action or an enabled durable
 scheduler. The selected provider, runtime capability, model, reasoning effort,
 campaign state, and usage lineage remain visible in Studio.
+
+Studio is not a machine-control API. External Agents should begin with
+`pnpm --silent pmh`, then use `control status` and `agent workspace`. The latter
+reads the dedicated bounded `GET /api/v1/agent-workspace/routing` projection;
+it preserves the exact identities needed to choose a next action without
+serializing the multi-megabyte human workspace or scraping this interface.

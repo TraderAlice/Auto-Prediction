@@ -2752,6 +2752,112 @@ footer {
   }
 }
 
+/* The product has an internal research-Agent layer and an external operator-
+ * Agent layer. Keep the machine entry point visible without turning Studio
+ * into terminal documentation. */
+.external-agent-access {
+  display: grid;
+  grid-template-columns: minmax(300px, 1.25fr) minmax(320px, 1fr) auto;
+  align-items: center;
+  gap: 22px;
+  margin-top: 14px;
+  border: 1px solid rgba(120, 217, 181, 0.2);
+  border-radius: 10px;
+  background: linear-gradient(110deg, rgba(120, 217, 181, 0.065), #101416 58%);
+  padding: 16px 18px;
+}
+
+.external-agent-access-heading {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.external-agent-access-icon {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 1px solid rgba(120, 217, 181, 0.24);
+  border-radius: 8px;
+  background: rgba(120, 217, 181, 0.08);
+  color: var(--primary);
+}
+
+.external-agent-access-heading > div {
+  display: grid;
+  gap: 3px;
+}
+
+.external-agent-access-heading strong {
+  font-size: 14px;
+  font-weight: 610;
+}
+
+.external-agent-access-heading p {
+  margin: 0;
+  color: #8f9894;
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.external-agent-commands {
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+}
+
+.external-agent-commands code {
+  overflow: hidden;
+  border: 1px solid #282f32;
+  border-radius: 6px;
+  background: #0b0e10;
+  padding: 6px 9px;
+  color: #c8d1cd;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 11.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.external-agent-access-meta {
+  display: grid;
+  justify-items: end;
+  gap: 7px;
+  white-space: nowrap;
+}
+
+.external-agent-access-meta span {
+  color: #747d79;
+  font-size: 11.5px;
+}
+
+@media (max-width: 1180px) {
+  .external-agent-access {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .external-agent-access-meta {
+    grid-column: 1 / -1;
+    grid-template-columns: auto 1fr;
+    align-items: center;
+    justify-items: start;
+  }
+}
+
+@media (max-width: 760px) {
+  .external-agent-access {
+    grid-template-columns: 1fr;
+  }
+
+  .external-agent-access-meta {
+    grid-column: auto;
+    grid-template-columns: 1fr;
+  }
+}
+
 .agent-console {
   display: grid;
   gap: 20px;

@@ -6055,6 +6055,29 @@ function Overview({
         <Metric label="Order execution" value="Disabled" detail="research workspace" />
       </section>
 
+      <section className="external-agent-access" aria-label="External Agent access">
+        <div className="external-agent-access-heading">
+          <span className="external-agent-access-icon"><Bot size={17} /></span>
+          <div>
+            <span className="eyebrow">External operator surface</span>
+            <strong>Agents can operate without scraping Studio</strong>
+            <p>
+              The versioned CLI reads the same local control plane and returns
+              bounded JSON, stable failures, and exact next actions.
+            </p>
+          </div>
+        </div>
+        <div className="external-agent-commands" aria-label="Agent CLI entry points">
+          <code>pnpm --silent pmh</code>
+          <code>pnpm --silent pmh control status</code>
+          <code>pnpm --silent pmh agent workspace</code>
+        </div>
+        <div className="external-agent-access-meta">
+          <Badge variant="verified">JSON · pmh.cli.v1</Badge>
+          <span>127.0.0.1:4100 · no live execution</span>
+        </div>
+      </section>
+
       <section className="ai-rack" aria-label="AI discovery workers">
         <div className="ai-rack-header">
           <div className="ai-rack-heading">
