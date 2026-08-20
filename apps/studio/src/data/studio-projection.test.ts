@@ -5,6 +5,7 @@ import {
   RealCandidatePreflightDesk,
   ReplayBookDesk,
 } from "@pmh/control-plane";
+import { presentVenueCapabilityChips } from "../lib/venue-capability-chip.js";
 import {
   parseStartupReadiness,
   parseProjectionInvalidation,
@@ -384,6 +385,35 @@ describe("Studio projection safety", () => {
     expect(inertVenues.every((venue) => !venue.liveExecutionEnabled)).toBe(
       true,
     );
+    expect(
+      inertVenues.flatMap((venue) =>
+        presentVenueCapabilityChips(
+          venue.capabilities,
+          venue.liveExecutionEnabled,
+        ),
+      ).filter((chip) => chip.key === "ORDER_GATEWAY"),
+    ).toEqual([
+      {
+        key: "ORDER_GATEWAY",
+        label: "ORDER_GATEWAY · INERT",
+        inert: true,
+      },
+      {
+        key: "ORDER_GATEWAY",
+        label: "ORDER_GATEWAY · INERT",
+        inert: true,
+      },
+    ]);
+    expect(
+      studioProjection.venues
+        .flatMap((venue) =>
+          presentVenueCapabilityChips(
+            venue.capabilities,
+            venue.liveExecutionEnabled,
+          ),
+        )
+        .some((chip) => chip.key === "ORDER_GATEWAY" && !chip.inert),
+    ).toBe(false);
   });
 
   it("labels every displayed opportunity as exact fixture evidence", () => {

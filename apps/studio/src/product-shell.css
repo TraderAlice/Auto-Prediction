@@ -772,8 +772,19 @@ pre,
   font-weight: 550;
 }
 
-.sidebar-status span:last-child,
+.sidebar-status > div > span:last-child,
+.sidebar-status-summary span:last-child,
 .authority-note span {
+  color: #737c79;
+  font-size: 12px;
+}
+
+.sidebar-status-detail {
+  padding-left: 18px;
+}
+
+.sidebar-status-detail p,
+.sidebar-status-detail li {
   color: #737c79;
   font-size: 12px;
 }
@@ -2584,7 +2595,8 @@ footer {
   .scout-heading,
   .ai-rack-header,
   .ai-rack-footer,
-  .ai-runtime-panel-heading {
+  .ai-runtime-panel-heading,
+  .first-operator-step {
     align-items: stretch;
     flex-direction: column;
   }
@@ -3595,13 +3607,61 @@ footer {
 
 .inline-alert {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 8px;
   border: 1px solid color-mix(in srgb, var(--destructive) 45%, var(--border));
   border-radius: 10px;
   padding: 10px 12px;
   color: var(--destructive);
   font-size: 13px;
+}
+
+.inline-alert p {
+  margin: 0;
+}
+
+.inline-alert p + p {
+  color: var(--muted-foreground);
+  margin-top: 4px;
+}
+
+.inline-alert a {
+  color: inherit;
+  font-weight: 650;
+  text-decoration: underline;
+}
+
+.first-operator-step {
+  align-items: flex-start;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  display: flex;
+  gap: 18px;
+  justify-content: space-between;
+  margin: 12px 0 16px;
+  padding: 16px;
+}
+
+.first-operator-step strong {
+  display: block;
+  font-size: 14px;
+  margin-top: 2px;
+}
+
+.first-operator-step p {
+  color: var(--muted-foreground);
+  font-size: 13px;
+  line-height: 1.5;
+  margin: 4px 0 0;
+}
+
+.first-operator-step-actions {
+  display: flex;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
 }
 
 @media (max-width: 900px) {
@@ -4182,10 +4242,17 @@ body {
   font-weight: 550;
 }
 
-.sidebar-status span:last-child,
+.sidebar-status > div > span:last-child,
+.sidebar-status-summary span:last-child,
 .authority-note span {
   color: #6f7874;
   font-size: 13px;
+}
+
+.sidebar-status-detail p,
+.sidebar-status-detail li {
+  color: #6f7874;
+  font-size: 12px;
 }
 
 .topbar {
@@ -4732,7 +4799,8 @@ footer {
   .scout-heading,
   .ai-rack-header,
   .ai-rack-footer,
-  .ai-runtime-panel-heading {
+  .ai-runtime-panel-heading,
+  .first-operator-step {
     align-items: stretch;
     flex-direction: column;
   }

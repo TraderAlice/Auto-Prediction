@@ -289,8 +289,10 @@ dashboard together. Vite starts at `127.0.0.1:5173` and automatically advances
 to the next free port. The dashboard uses a same-origin development proxy for
 the control plane; always follow the URL printed by Vite.
 
-On first use, check readiness and storage posture before refreshing catalogs or
-starting a campaign. Catalog refresh is anonymous and does not call a model.
-Agent work begins only through an explicit action or an enabled durable
-scheduler. The selected provider, runtime capability, model, reasoning effort,
-campaign state, and usage lineage remain visible in Studio.
+On first use, open **Discover**. Check **System ready** source health, then
+**Refresh catalogs**. Catalog refresh is anonymous and does not call a model.
+If discovery dispatch is blocked, open **Agent operations** for the existing
+Codex session; do not expect **Explore next** to be the next click. Agent work
+begins only through an explicit action or an enabled durable scheduler. The
+selected provider, runtime capability, model, reasoning effort, campaign state,
+and usage lineage remain visible in Studio.

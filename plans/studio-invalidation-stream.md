@@ -92,7 +92,7 @@ scheduling for the same event loop as evidence accumulates.
   invalidation-only fanout and a per-revision cache, an idle sample fell to
   0.2%; projection cost is now paid on operator demand instead of every effect.
 - Studio retains the last good projection, allows at most one request in flight,
-  collapses invalidations into one follow-up read, and exposes Live data,
+  collapses invalidations into one follow-up read, and exposes SSE connected,
   Updating, Connecting, or Reconnecting in the product shell.
 - Focused server/stream tests passed 28/28 and Studio projection tests passed
   11/11. Full workspace type checks, all 576 tests, and the production build

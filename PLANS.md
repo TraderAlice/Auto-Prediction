@@ -1119,7 +1119,7 @@ invalidation; the 2.27 MB bounded view is built on demand, shared per revision,
 and served with an exact ETag. On retained local state, a matching conditional
 read returned 304 with zero bytes in 0.000789 seconds, and the observed idle
 control-plane sample fell from the old 52–55% projection-fanout workload to
-0.2%. Studio retains its last good view and reports Live data, Updating, or
+0.2%. Studio retains its last good view and reports SSE connected, Updating, or
 Reconnecting instead of silently replacing megabytes of state.
 
 The product bottleneck has moved from discovery volume to opportunity delivery.

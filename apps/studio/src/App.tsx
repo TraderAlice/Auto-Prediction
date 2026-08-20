@@ -66,11 +66,21 @@ import {
 import { buildOpportunityFrontier } from "@/data/opportunity-frontier";
 import { useDiscoveryExecutionCapability } from "@/data/discovery-execution";
 import {
+  discoverFirstStep,
+  discoverSpendAction,
+  findingsPrimaryAction,
+  inspirationEmptyState,
+  isCredentialBlockedDispatch,
+} from "@/data/first-operator-next-step";
+import {
   useStandingRouteWorkspace,
   type StandingRouteState,
   type StandingRouteUsage,
 } from "@/data/standing-routes";
+import { describeSidebarCatalogStatus } from "@/lib/sidebar-catalog-status";
 import { cn } from "@/lib/utils";
+import { presentVenueCapabilityChips } from "@/lib/venue-capability-chip";
+import { reviewQueueNeedsKeyPath } from "@/lib/review-queue-needs-key";
 import {
   parseWorkspaceRoute,
   serializeWorkspaceRoute,
@@ -3891,18 +3901,37 @@ async function requestCandidateWatchRefresh(): Promise<"READY" | "DEGRADED"> {
 
 function SidebarStatus() {
   const studioProjection = useStudioProjection();
-  const observation = studioProjection.ai.catalogObservation;
+  const status = describeSidebarCatalogStatus(
+    studioProjection.ai.catalogObservation,
+  );
   return (
-    <div className="sidebar-status">
-      <span className="sidebar-status-dot" />
-      <div>
-        <strong>System ready</strong>
-        <span>
-          {observation.healthySourceCount}/{observation.sourceCount} sources ·{" "}
-          {observation.listingCount} markets
-        </span>
+    <details className={cn("sidebar-status", `is-${status.tone}`)}>
+      <summary className="sidebar-status-summary" title={status.hoverLabel}>
+        <span className="sidebar-status-dot" />
+        <div>
+          <strong>{status.heading}</strong>
+          <span>{status.countLabel}</span>
+        </div>
+      </summary>
+      <div className="sidebar-status-detail">
+        {status.unhealthySources.length === 0 ? (
+          <p>All catalog sources are current.</p>
+        ) : (
+          <ul>
+            {status.unhealthySources.map((source) => (
+              <li key={source.venueId}>
+                <strong>{source.venueId}</strong>
+                <span>{source.statusLabel}</span>
+                {source.diagnostic !== null && (
+                  <span>{source.diagnostic}</span>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+        <p>{status.refreshHint}</p>
       </div>
-    </div>
+    </details>
   );
 }
 
@@ -4053,7 +4082,7 @@ function Topbar({
         ? `${Math.floor(staleAge / 60_000)}m old`
         : `${Math.floor(staleAge / 3_600_000)}h old`;
   const syncLabel = projectionSync.status === "LIVE"
-    ? "Live data"
+    ? "SSE connected"
     : projectionSync.status === "STALE_REVALIDATING"
       ? `Last known · ${staleAgeLabel} · revalidating`
     : projectionSync.status === "REFRESHING"
@@ -6030,7 +6059,7 @@ function Overview({
             {studioProjection.identity.stateHash.slice(0, 22)}…
           </code>
           <div>
-            <Badge variant="muted">Live data</Badge>
+            <Badge variant="muted">Observed catalog</Badge>
             <span>{studioProjection.identity.mode} · {studioProjection.identity.view}</span>
           </div>
         </div>
@@ -6038,7 +6067,7 @@ function Overview({
 
       <section className="metric-grid" aria-label="System metrics">
         <Metric
-          label="Live markets"
+          label="Catalog listings"
           value={`${catalogObservation.listingCount}`}
           detail="current anonymous catalog"
         />
@@ -6945,8 +6974,13 @@ function RealCandidatePreflightView() {
   );
 }
 
-function MarketArchaeologistView() {
+function MarketArchaeologistView({
+  onNavigate,
+}: {
+  onNavigate: (view: View) => void;
+}) {
   const studioProjection = useStudioProjection();
+  const catalogObservation = studioProjection.ai.catalogObservation;
   const corpus =
     studioProjection.ai.marketCorpus ?? EMPTY_MARKET_CORPUS;
   const catalogRefreshScheduler =
@@ -7050,6 +7084,9 @@ function MarketArchaeologistView() {
   const [deepRetryLeaseId, setDeepRetryLeaseId] = useState<string | null>(null);
   const [issueAction, setIssueAction] = useState<string | null>(null);
   const [issueDiagnostic, setIssueDiagnostic] = useState<string | null>(null);
+  const [refreshStatus, setRefreshStatus] = useState<
+    "IDLE" | "RUNNING" | "READY" | "DEGRADED" | "FAILED"
+  >("IDLE");
   const [newIssueTitle, setNewIssueTitle] = useState("");
   const [newIssueQuestion, setNewIssueQuestion] = useState("");
   const [newIssueLens, setNewIssueLens] = useState<SearchIssue["lens"]>("EQUIVALENCE");
@@ -7058,6 +7095,17 @@ function MarketArchaeologistView() {
   const discoveryCapability = discoveryExecution.data?.capability;
   const discoveryRuntime = discoveryExecution.data?.runtime;
   const discoveryModel = discoveryExecution.data?.model;
+  const discoveryBlocked = isCredentialBlockedDispatch(
+    discoveryCapability?.dispatchEligibility,
+    discoveryCapability?.diagnostic ?? discoveryExecution.diagnostic,
+  );
+  const firstStep = discoverFirstStep({
+    healthySourceCount: catalogObservation.healthySourceCount,
+    sourceCount: catalogObservation.sourceCount,
+    listingCount: catalogObservation.listingCount,
+  });
+  const spendAction = discoverSpendAction(discoveryBlocked);
+  const emptyInspiration = inspirationEmptyState(discoveryBlocked);
   const currentLensRecords = scheduler.records.filter(
     (record) => record.lease.snapshotIdentity === corpus.snapshotIdentity,
   );
@@ -7090,6 +7138,15 @@ function MarketArchaeologistView() {
       setLeaseDiagnostic(
         error instanceof Error ? error.message : "search lease failed",
       );
+    }
+  }
+
+  async function refreshCatalog(): Promise<void> {
+    setRefreshStatus("RUNNING");
+    try {
+      setRefreshStatus(await requestCatalogRefresh());
+    } catch {
+      setRefreshStatus("FAILED");
     }
   }
 
@@ -7207,23 +7264,30 @@ function MarketArchaeologistView() {
             {discoveryExecution.preflightBusy ? <RefreshCw className="is-spinning" size={13} /> : <ShieldCheck size={13} />}
             {discoveryCapability?.observation == null ? "Preflight" : "Recheck"}
           </Button>
-          <Button
-            disabled={
-              corpus.listingCount === 0 ||
-              nextLens === undefined ||
-              scheduler.status === "RUNNING" ||
-              leaseStatus === "RUNNING" ||
-              discoveryCapability?.dispatchEligibility !== "ELIGIBLE"
-            }
-            onClick={() => void runLease()}
-          >
-            {leaseStatus === "RUNNING" ? (
-              <RefreshCw className="is-spinning" size={13} />
-            ) : (
-              <Sparkles size={13} />
-            )}
-            {leaseStatus === "RUNNING" ? "Exploring…" : "Start heuristic scan"}
-          </Button>
+          {spendAction.kind === "OPEN_AGENT_OPERATIONS" ? (
+            <Button onClick={() => onNavigate("agents")}>
+              <Bot size={13} />
+              {spendAction.label}
+            </Button>
+          ) : (
+            <Button
+              disabled={
+                corpus.listingCount === 0 ||
+                nextLens === undefined ||
+                scheduler.status === "RUNNING" ||
+                leaseStatus === "RUNNING" ||
+                discoveryCapability?.dispatchEligibility !== "ELIGIBLE"
+              }
+              onClick={() => void runLease()}
+            >
+              {leaseStatus === "RUNNING" ? (
+                <RefreshCw className="is-spinning" size={13} />
+              ) : (
+                <Sparkles size={13} />
+              )}
+              {leaseStatus === "RUNNING" ? "Exploring…" : spendAction.label}
+            </Button>
+          )}
         </div>
       </div>
 
@@ -7234,9 +7298,32 @@ function MarketArchaeologistView() {
         </div>
       )}
 
+      <section className="first-operator-step" aria-label="First step">
+        <div>
+          <span className="eyebrow">{firstStep.title}</span>
+          <strong>{firstStep.sourceHealthLabel}</strong>
+          <p>{firstStep.body}</p>
+        </div>
+        <div className="first-operator-step-actions">
+          <Button
+            disabled={refreshStatus === "RUNNING"}
+            onClick={() => void refreshCatalog()}
+          >
+            <RefreshCw size={13} />
+            {refreshStatus === "RUNNING"
+              ? "Refreshing…"
+              : refreshStatus === "FAILED"
+                ? "Retry refresh"
+                : refreshStatus === "READY" || refreshStatus === "DEGRADED"
+                  ? "Catalogs refreshed"
+                  : firstStep.primaryLabel}
+          </Button>
+        </div>
+      </section>
+
       <div className="radar-summary-grid archaeology-summary-grid">
         <Metric
-          label="Live markets"
+          label="Catalog listings"
           value={`${corpus.listingCount}`}
           detail="public contracts in view"
         />
@@ -7344,8 +7431,8 @@ function MarketArchaeologistView() {
               <div className="inspiration-empty">
                 <Sparkles size={18} />
                 <div>
-                  <strong>No useful detours yet</strong>
-                  <p>When a heuristic scan finds a grounded relation outside its assignment, it appears here instead of being forced into a claim.</p>
+                  <strong>{emptyInspiration.title}</strong>
+                  <p>{emptyInspiration.body}</p>
                 </div>
               </div>
             ) : (
@@ -8789,6 +8876,10 @@ function OpportunityLifecycleView({
     1,
     ...recentUsageHours.map((bucket) => Number(bucket.invocationCount)),
   );
+  const needsKeyPath = reviewQueueNeedsKeyPath({
+    reviewerConfigured: semanticReview.configured,
+    estimatorsConfigured: probabilityEstimation.configured,
+  });
 
   return (
     <section className="page-section lifecycle-page">
@@ -8816,6 +8907,17 @@ function OpportunityLifecycleView({
           <Badge variant="warning">LIVE ROUTE ABSENT</Badge>
         </div>
       </div>
+
+      {needsKeyPath !== null && (
+        <div className="inline-alert" role="status">
+          <CircleOff size={14} />
+          <span>
+            The review lane is idle until the existing{" "}
+            <a href={needsKeyPath}>Agent operations</a>
+            {" "}session exists.
+          </span>
+        </div>
+      )}
 
       {focusedProposalIds.length > 0 && (
         <section className="focused-review-handoff" aria-label="Focused finding review handoff">
@@ -10871,7 +10973,7 @@ function OpportunityRadarView() {
               ? "Sources refreshed"
               : refreshStatus === "FAILED"
                 ? "Retry refresh"
-                : "Refresh live radar"}
+                : "Refresh catalogs"}
         </Button>
       </div>
 
@@ -10889,7 +10991,7 @@ function OpportunityRadarView() {
         <Metric
           label="Candidate pairs"
           value={`${radar.candidateCount}`}
-          detail={`${radar.candidates.filter((candidate) => candidate.indicativeEconomics.status === "POSITIVE_GROSS_HINT").length} positive gross hints`}
+          detail={`${radar.candidates.filter((candidate) => candidate.indicativeEconomics.status === "POSITIVE_GROSS_HINT").length} catalog-price overlap hints · not executable`}
         />
         <Metric
           label="Scout triage"
@@ -11021,10 +11123,13 @@ function OpportunityRadarView() {
                     <ShieldCheck size={14} />
                     <span>
                       Exact two-listing context · proposal only · no auto spend
+                      · a click spends scout or pi budget
                     </span>
                   </div>
                   <div className="radar-action-buttons">
                     <Button
+                      variant="outline"
+                      title="Starts a bounded cheap-scout model run. Not free. Does not place orders."
                       disabled={running || studioProjection.ai.activeRuns > 0}
                       onClick={() => void triage(candidate)}
                     >
@@ -11034,17 +11139,18 @@ function OpportunityRadarView() {
                         <Sparkles size={14} />
                       )}
                       {running
-                        ? "Scouts triaging…"
+                        ? "Spending scout budget…"
                         : localState === "DONE"
                           ? "Triage complete"
                           : localState === "RESTORED" || retained
                             ? "Restore scout result"
                             : localState === "FAILED"
-                              ? "Retry scout triage"
-                              : "Triage with fast scouts"}
+                              ? "Retry scout spend"
+                              : "Spend scout budget to triage"}
                     </Button>
                     <Button
                       variant="outline"
+                      title="Starts a bounded deep-pi model run. Not free. Does not place orders."
                       disabled={
                         !retained ||
                         !studioProjection.ai.investigator.configured ||
@@ -11059,7 +11165,7 @@ function OpportunityRadarView() {
                         <SquareTerminal size={14} />
                       )}
                       {investigating
-                        ? "pi investigating…"
+                        ? "Spending deep-pi budget…"
                         : investigationState === "DONE"
                           ? "pi complete"
                           : investigationState === "RESTORED" ||
@@ -11067,8 +11173,8 @@ function OpportunityRadarView() {
                             ? "Restore pi report"
                             : investigationState === "FAILED" ||
                                 investigationRecord?.status === "FAILED"
-                              ? "Retry deep pi"
-                              : "Run deep pi"}
+                              ? "Retry deep-pi spend"
+                              : "Spend deep-pi model budget"}
                     </Button>
                   </div>
                 </div>
@@ -11388,8 +11494,10 @@ function StandingRouteMemory({ revision }: { revision: string }) {
 
 function ScoutInboxView({
   onOpenReview,
+  onNavigate,
 }: {
   onOpenReview: (proposalIds: readonly string[]) => void;
+  onNavigate: (view: View) => void;
 }) {
   const studioProjection = useStudioProjection();
   const scheduler = studioProjection.ai.searchLeaseScheduler ?? EMPTY_SEARCH_LEASE_SCHEDULER;
@@ -11430,6 +11538,10 @@ function ScoutInboxView({
   const discoveryCapability = discoveryExecution.data?.capability;
   const discoveryRuntime = discoveryExecution.data?.runtime;
   const discoveryModel = discoveryExecution.data?.model;
+  const findingsAction = findingsPrimaryAction({
+    dispatchEligibility: discoveryCapability?.dispatchEligibility,
+    diagnostic: discoveryCapability?.diagnostic ?? discoveryExecution.diagnostic,
+  });
   const liveContextEligible =
     catalogMode === "VERIFIED_FIXTURES" ||
     selectedVenueIds.every(
@@ -11545,34 +11657,44 @@ function ScoutInboxView({
             {discoveryExecution.preflightBusy ? <RefreshCw className="is-spinning" size={13} /> : <ShieldCheck size={13} />}
             {discoveryCapability?.observation == null ? "Preflight" : "Recheck"}
           </Button>
-          <Button
-            disabled={
-              scheduler.status === "RUNNING" ||
-              explorationStatus === "RUNNING" ||
-              discoveryCapability?.dispatchEligibility !== "ELIGIBLE"
-            }
-            onClick={() => void exploreNext()}
-          >
-            {explorationStatus === "RUNNING" ? (
-              <RefreshCw className="is-spinning" size={13} />
-            ) : (
-              <Sparkles size={13} />
-            )}
-            {explorationStatus === "RUNNING"
-              ? "Exploring…"
-              : explorationStatus === "RESTORED"
-                ? "Latest scan restored"
-                : explorationStatus === "FAILED"
-                  ? "Retry exploration"
-                  : "Explore next"}
-          </Button>
+          {findingsAction.kind === "OPEN_AGENT_OPERATIONS" ? (
+            <Button onClick={() => onNavigate("agents")}>
+              <Bot size={13} />
+              {findingsAction.label}
+            </Button>
+          ) : (
+            <Button
+              disabled={
+                scheduler.status === "RUNNING" ||
+                explorationStatus === "RUNNING" ||
+                discoveryCapability?.dispatchEligibility !== "ELIGIBLE"
+              }
+              onClick={() => void exploreNext()}
+            >
+              {explorationStatus === "RUNNING" ? (
+                <RefreshCw className="is-spinning" size={13} />
+              ) : (
+                <Sparkles size={13} />
+              )}
+              {explorationStatus === "RUNNING"
+                ? "Exploring…"
+                : explorationStatus === "RESTORED"
+                  ? "Latest scan restored"
+                  : explorationStatus === "FAILED"
+                    ? "Retry exploration"
+                    : findingsAction.label}
+            </Button>
+          )}
         </div>
       </div>
 
       {(discoveryExecution.diagnostic !== null || discoveryCapability?.dispatchEligibility === "BLOCKED") && (
         <div className="inline-alert" role="status">
           <CircleOff size={14} />
-          {discoveryExecution.diagnostic ?? `Discovery is blocked before model spend: ${discoveryCapability?.diagnostic ?? "run a capability preflight"}`}
+          <div>
+            <p>{discoveryExecution.diagnostic ?? `Discovery is blocked before model spend: ${discoveryCapability?.diagnostic ?? "run a capability preflight"}`}</p>
+            {findingsAction.helper !== "" && <p>{findingsAction.helper}</p>}
+          </div>
         </div>
       )}
 
@@ -12800,8 +12922,16 @@ function VenueMatrix() {
                 </div>
               </div>
               <div className="capability-chips">
-                {venue.capabilities.map((capability) => (
-                  <span key={capability}>{capability}</span>
+                {presentVenueCapabilityChips(
+                  venue.capabilities,
+                  venue.liveExecutionEnabled,
+                ).map((chip) => (
+                  <span
+                    key={chip.key}
+                    className={chip.inert ? "is-inert" : undefined}
+                  >
+                    {chip.label}
+                  </span>
                 ))}
               </div>
             </CardContent>
@@ -14073,7 +14203,9 @@ function StudioShell({ projectionSync }: { projectionSync: ProjectionSyncState }
         <main>
           {view === "overview" && <Overview onInspect={setOpportunity} />}
           {view === "agents" && <AgentOperationsView />}
-          {view === "archaeologist" && <MarketArchaeologistView />}
+          {view === "archaeologist" && (
+            <MarketArchaeologistView onNavigate={(nextView) => navigate(nextView)} />
+          )}
           {view === "lifecycle" && (
             <OpportunityLifecycleView
               focusedProposalIds={focusedProposalIds}
@@ -14085,6 +14217,7 @@ function StudioShell({ projectionSync }: { projectionSync: ProjectionSyncState }
           {view === "scouts" && (
             <ScoutInboxView
               onOpenReview={(proposalIds) => navigate("lifecycle", proposalIds)}
+              onNavigate={(nextView) => navigate(nextView)}
             />
           )}
           {view === "budgets" && (

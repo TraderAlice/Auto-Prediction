@@ -297,6 +297,25 @@ pre,
   padding: 14px 8px 2px;
 }
 
+details.sidebar-status {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+}
+
+.sidebar-status-summary {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 10px;
+  list-style: none;
+  cursor: pointer;
+}
+
+.sidebar-status-summary::-webkit-details-marker {
+  display: none;
+}
+
 .sidebar-status-dot {
   width: 8px;
   height: 8px;
@@ -305,7 +324,17 @@ pre,
   background: var(--primary);
 }
 
-.sidebar-status > div {
+.sidebar-status.is-degraded .sidebar-status-dot {
+  background: var(--warning);
+}
+
+.sidebar-status.is-idle .sidebar-status-dot,
+.sidebar-status.is-refreshing .sidebar-status-dot {
+  background: var(--muted-foreground);
+}
+
+.sidebar-status > div,
+.sidebar-status-summary > div {
   display: flex;
   min-width: 0;
   flex-direction: column;
@@ -314,12 +343,47 @@ pre,
 
 .sidebar-status strong { font-size: 13px; }
 
-.sidebar-status span:last-child {
+.sidebar-status > div > span:last-child,
+.sidebar-status-summary span:last-child {
   overflow: hidden;
   color: var(--muted-foreground);
   font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.sidebar-status-detail {
+  min-width: 0;
+  padding-left: 18px;
+}
+
+.sidebar-status-detail p,
+.sidebar-status-detail li {
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.sidebar-status-detail ul {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0 0 8px;
+  padding: 0;
+  list-style: none;
+}
+
+.sidebar-status-detail li {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.sidebar-status-detail li strong {
+  color: var(--foreground);
+  font-size: 12px;
 }
 
 .venue-pulse {
@@ -1309,6 +1373,12 @@ main {
   font-family: inherit;
   font-size: 12px;
   padding: 4px 6px;
+}
+
+.capability-chips span.is-inert {
+  border-color: rgba(255, 199, 142, 0.22);
+  background: rgba(255, 199, 142, 0.04);
+  color: #c99e75;
 }
 
 .scout-heading {
@@ -2342,6 +2412,38 @@ main {
   font-size: 13px;
   line-height: 1.5;
   margin: 3px 0 0;
+}
+
+.first-operator-step {
+  align-items: flex-start;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  display: flex;
+  gap: 18px;
+  justify-content: space-between;
+  margin: 0 0 18px;
+  padding: 16px;
+}
+
+.first-operator-step strong {
+  display: block;
+  font-size: 14px;
+  margin-top: 2px;
+}
+
+.first-operator-step p {
+  color: var(--muted-foreground);
+  font-size: 13px;
+  line-height: 1.5;
+  margin: 4px 0 0;
+}
+
+.first-operator-step-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
 }
 
 .inspiration-grid {
@@ -7598,6 +7700,11 @@ footer span:first-child {
 
   .archaeology-heading-badges {
     justify-content: flex-start;
+  }
+
+  .first-operator-step {
+    align-items: stretch;
+    flex-direction: column;
   }
 
   .archaeology-pipeline {
