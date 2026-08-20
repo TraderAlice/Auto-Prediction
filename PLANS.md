@@ -1,5 +1,11 @@
 # Plans
 
+The supported runtime baseline is **Node.js 22.19+**. The repository's own
+runtime surface (`node:sqlite`, `import.meta.dirname`, pnpm 11, Vite and the
+current dependency graph) is qualified on Node 22.22.1; Node 24 remains
+compatible but is no longer required. `@types/node` follows the Node 22 line so
+type checking cannot silently admit a Node 24-only API.
+
 The product brand is **Auto Prediction**, paired conceptually with Auto Quant.
 The rename is presentation-only for now: `pmh` CLI, package scopes, environment
 variables, and content-addressed protocol/schema identifiers remain stable

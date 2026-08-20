@@ -5,7 +5,7 @@
   "description": "Auto Prediction: an AI-native semantic arbitrage research harness for prediction markets.",
   "packageManager": "pnpm@11.13.1",
   "engines": {
-    "node": ">=24"
+    "node": ">=22.19.0"
   },
   "scripts": {
     "build": "pnpm -r build",
@@ -24,7 +24,7 @@
     "test:coverage": "pnpm -r test:coverage"
   },
   "devDependencies": {
-    "@types/node": "^24.1.0",
+    "@types/node": "^22.19.0",
     "esbuild": "^0.28.1",
     "fast-check": "^4.2.0",
     "socket.io-client": "^4.8.3",

@@ -26,7 +26,7 @@
 | 层 | 选择 |
 | --- | --- |
 | 主语言 | TypeScript，`strict: true` |
-| 生产运行时 | Node.js 24+ |
+| 生产运行时 | Node.js 22.19+ |
 | Monorepo | pnpm workspace |
 | Schema | Zod；外部生成类型只存在于 adapter 内 |
 | 数值 | `bigint` fixed-point；Core 禁止 JS `number` 表示钱、价格、数量、费用和 payout |
@@ -842,7 +842,7 @@ prediction-market-harness/
 ## 技术选型
 
 - TypeScript strict
-- Node.js 24+
+- Node.js 22.19+
 - pnpm workspace
 - Zod
 - Vitest + fast-check
