@@ -106,6 +106,10 @@ pnpm studio
 - Studio: Vite starts at `http://127.0.0.1:5173` and automatically advances to
   `5174`, `5175`, and later ports when a port is occupied
 
+Use the Studio URL printed by Vite. Port `4100` is exclusive: if the control
+plane cannot bind, the command stops Studio too and exits with an error instead
+of leaving a dashboard that can only report an offline backend.
+
 The default operational database is `.data/control-plane.sqlite` in WAL mode.
 It is ignored by Git. The UI remains useful without a DeepSeek key because the
 default Codex route uses the local Codex OAuth session; model availability is
@@ -116,17 +120,25 @@ smoke commands, read [Operations](docs/OPERATIONS.md).
 
 ## First use
 
-1. Open Studio and check **Readiness** for the control plane, catalog, storage,
-   Agent runtime, and credential posture.
-2. Refresh anonymous catalogs. A refresh creates a new immutable corpus; it
-   does not spend model budget or grant trading authority.
-3. Open the ontology / discovery workspace and inspect the standing campaigns.
-   Run a bounded campaign or issue against the retained corpus.
-4. Read the effect timeline, exact listing references, counterexamples, and
-   token usage. An empty or falsified run is retained research evidence.
-5. Move only a grounded multi-listing hypothesis into independent review.
-6. Treat economic hints as routing signals until fresh books, fees, depth, and
-   the exact verifier all agree.
+1. Studio opens on **Discover**. Before spending model budget, open **System
+   overview** in the **System** section and confirm the control plane, SQLite
+   store, catalog, Agent runtime, and credential posture are reported honestly.
+2. Select **Refresh catalogs** on **System overview**. A refresh creates a new
+   immutable anonymous corpus; it does not call a model or grant trading
+   authority.
+3. Open **Agent operations** and run its **Preflight** action. This checks the
+   selected runtime, credential, model, and effort without silently changing
+   provider.
+4. Return to **Discover** and start with a broad semantic neighborhood rather
+   than a preconceived claim. Create a paused campaign first if you want to
+   inspect its scope and budget before activation.
+5. Open **Findings** for retained runs and standing routes. Read the effect
+   timeline, exact listing references, counterexamples, and token usage. Empty
+   and falsified runs remain research evidence.
+6. Send only a grounded multi-listing hypothesis to **Review queue**, then open
+   the separate **Preflight** workspace for exact economic screening. Treat
+   every hint as routing-only until fresh books, fees, depth, and the
+   first-party verifier agree.
 
 The longer operator walkthrough is in [Studio](docs/STUDIO.md).
 

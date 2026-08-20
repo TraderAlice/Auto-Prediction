@@ -18,9 +18,9 @@
     "fixtures:capture": "node scripts/capture-public-fixtures.mjs",
     "fixtures:capture:streams": "node scripts/capture-public-stream-fixtures.mjs",
     "pmh": "pnpm -r build && node packages/cli/dist/main.js",
-    "studio": "pnpm --parallel --filter @pmh/control-plane --filter @pmh/studio dev",
+    "studio": "node scripts/studio.mjs",
     "studio:build": "pnpm --filter @pmh/control-plane build && pnpm --filter @pmh/studio build",
-    "test": "pnpm -r test",
+    "test": "node --test scripts/studio-supervisor.test.mjs && pnpm -r test",
     "test:coverage": "pnpm -r test:coverage"
   },
   "devDependencies": {

@@ -22,7 +22,9 @@ pnpm studio
 
 `pnpm studio` runs the Node control plane and the Vite dashboard together. The
 control plane binds `127.0.0.1:4100`. Vite starts at `127.0.0.1:5173` and
-increments the port when it is already occupied.
+increments the port when it is already occupied. Use the URL Vite prints. The
+command supervises both children: if either exits, the other is stopped too, so
+a control-plane bind failure cannot look like a successfully started Studio.
 
 Useful health checks:
 
