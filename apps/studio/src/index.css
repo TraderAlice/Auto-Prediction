@@ -5506,22 +5506,24 @@ footer span:first-child {
 .preflight-disposition-facts span,
 .preflight-disposition-facts strong {
   display: block;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .preflight-disposition-facts span {
   color: #685c51;
   font-size: 12px;
   text-transform: uppercase;
+  overflow: visible;
+  white-space: normal;
 }
 
 .preflight-disposition-facts strong {
   margin-top: 5px;
+  overflow: hidden;
   color: #c28f62;
   font-family: inherit;
   font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .preflight-disposition > code {
