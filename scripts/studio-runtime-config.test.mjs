@@ -11,7 +11,7 @@ test("publishes the OpenAlice Harness Studio capability manifest", async () => {
   ));
   assert.deepEqual(manifest, {
     manifestVersion: 1,
-    version: "0.0.0-dev",
+    version: "0.1.0",
     capabilities: {
       studio: {
         command: ["pnpm", "studio"],
