@@ -1,9 +1,10 @@
 # Plans
 
-The canonical Auto Prediction product version is **0.1.0**. The root package
-and OpenAlice Harness manifest carry this product version. Private internal
-workspace packages retain independent `0.0.0` identifiers until they acquire a
-real package-release lifecycle; they are not the product version.
+The canonical Auto Prediction product version is **0.1.0**. The root package,
+OpenAlice Harness manifest, private workspace packages, Studio, CLI, and
+Agent-runtime client identity carry the same version. Venue adapter identities
+and public fixture-capture User-Agents follow it as well, so every observable
+surface describes one coherent repository release.
 
 The supported runtime baseline is **Node.js 22.19+**. The repository's own
 runtime surface (`node:sqlite`, `import.meta.dirname`, pnpm 11, Vite and the

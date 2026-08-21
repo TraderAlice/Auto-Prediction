@@ -68,7 +68,7 @@ function inferTick(prices: readonly bigint[]): bigint {
 export const limitlessManifest: VenueManifest = {
   venueId: "limitless",
   displayName: "Limitless",
-  adapterVersion: "0.0.0",
+  adapterVersion: "0.1.0",
   protocolIdentity: "markets-socket-io:2026-07-31",
   officialSources: [
     "https://docs.limitless.exchange/developers/websocket-events",
