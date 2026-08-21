@@ -8,7 +8,7 @@
     "check": "tsc -b",
     "dev": "vite",
     "preview": "vite preview",
-    "test": "vitest run --passWithNoTests",
+    "test": "vitest run --passWithNoTests src studio-runtime.test.ts",
     "test:coverage": "vitest run --passWithNoTests"
   },
   "dependencies": {

@@ -1,0 +1,12 @@
+{
+  "manifestVersion": 1,
+  "version": "0.0.0-dev",
+  "capabilities": {
+    "studio": {
+      "command": ["pnpm", "studio"],
+      "ports": ["http", "controlPlane"],
+      "entryPort": "http",
+      "readinessPath": "/health"
+    }
+  }
+}

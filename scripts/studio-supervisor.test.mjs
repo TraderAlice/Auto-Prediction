@@ -5,6 +5,7 @@ import test from "node:test";
 
 import {
   assertPortAvailable,
+  assertStudioPortsAvailable,
   startStudioChildren,
   superviseStudio,
 } from "./studio-supervisor.mjs";
@@ -76,6 +77,57 @@ test("rejects before either child starts when port 4100 is occupied", async () =
   await new Promise((resolveClose) => occupant.close(resolveClose));
 });
 
+test("preflights both exact ports only in OpenAlice managed mode", async () => {
+  const calls = [];
+  const checkPort = async (input) => calls.push(input);
+  await assertStudioPortsAvailable({
+    managed: true,
+    host: "127.0.0.1",
+    httpPort: 49_321,
+    controlPlanePort: 49_322,
+    strictHttpPort: true,
+  }, checkPort);
+  assert.deepEqual(calls, [
+    { host: "127.0.0.1", port: 49_322, name: "control-plane" },
+    { host: "127.0.0.1", port: 49_321, name: "Studio" },
+  ]);
+
+  calls.length = 0;
+  await assertStudioPortsAvailable({
+    managed: false,
+    host: "127.0.0.1",
+    httpPort: 5_173,
+    controlPlanePort: 4_100,
+    strictHttpPort: false,
+  }, checkPort);
+  assert.deepEqual(calls, [
+    { host: "127.0.0.1", port: 4_100, name: "control-plane" },
+  ]);
+});
+
+test("rejects an occupied managed Studio entry port instead of incrementing", async () => {
+  const occupant = createServer();
+  await new Promise((resolveListen) => occupant.listen(0, "127.0.0.1", resolveListen));
+  const address = occupant.address();
+  assert.ok(address !== null && typeof address === "object");
+  const controlPlaneProbe = createServer();
+  await new Promise((resolveListen) =>
+    controlPlaneProbe.listen(0, "127.0.0.1", resolveListen)
+  );
+  const controlPlaneAddress = controlPlaneProbe.address();
+  assert.ok(controlPlaneAddress !== null && typeof controlPlaneAddress === "object");
+  const controlPlanePort = controlPlaneAddress.port;
+  await new Promise((resolveClose) => controlPlaneProbe.close(resolveClose));
+  await assert.rejects(assertStudioPortsAvailable({
+    managed: true,
+    host: "127.0.0.1",
+    httpPort: address.port,
+    controlPlanePort,
+    strictHttpPort: true,
+  }), /Studio port .* is already in use/);
+  await new Promise((resolveClose) => occupant.close(resolveClose));
+});
+
 test("runs the control plane without a watcher that can hide startup failure", () => {
   const calls = [];
   startStudioChildren({
@@ -85,10 +137,13 @@ test("runs the control plane without a watcher that can hide startup failure", (
       calls.push(args);
       return fakeChild();
     },
+    environment: { OPENALICE_CAPABILITY: "studio" },
   });
 
   assert.deepEqual(calls.map(([executable, args]) => [executable, args]), [
     ["/node", ["/pnpm.cjs", "--filter", "@pmh/control-plane", "exec", "tsx", "src/main.ts"]],
     ["/node", ["/pnpm.cjs", "--filter", "@pmh/studio", "dev"]],
   ]);
+  assert.equal(calls[0][2].env.OPENALICE_CAPABILITY, "studio");
+  assert.equal(calls[1][2].env.OPENALICE_CAPABILITY, "studio");
 });

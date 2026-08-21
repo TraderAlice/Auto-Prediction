@@ -1,13 +1,15 @@
 import {
-  assertPortAvailable,
+  assertStudioPortsAvailable,
   startStudioChildren,
   stopChild,
   superviseStudio,
 } from "./studio-supervisor.mjs";
+import { resolveStudioRuntimeConfig } from "./studio-runtime-config.mjs";
 
 async function main() {
-  await assertPortAvailable();
-  const children = startStudioChildren();
+  const runtime = resolveStudioRuntimeConfig();
+  await assertStudioPortsAvailable(runtime);
+  const children = startStudioChildren({ environment: process.env });
   let shuttingDown = false;
 
   for (const signal of ["SIGINT", "SIGTERM"]) {

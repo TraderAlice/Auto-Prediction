@@ -1,26 +1,34 @@
 import path from "node:path";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
-import { defineConfig } from "vite";
+import { defineConfig, type UserConfig } from "vite";
+import { resolveStudioRuntimeConfig } from "../../scripts/studio-runtime-config.mjs";
 
-export default defineConfig({
-  plugins: [react(), tailwindcss()],
-  server: {
-    // Bind the same loopback family used by other local workspaces so Vite can
-    // actually observe a port collision and increment to 5174, 5175, ... .
-    // Binding the default `localhost` can otherwise admit ::1:5173 while a
-    // different app already owns 127.0.0.1:5173.
-    host: "127.0.0.1",
-    port: 5173,
-    strictPort: false,
-    proxy: {
-      "/api": "http://127.0.0.1:4100",
-      "/health": "http://127.0.0.1:4100",
+export function studioViteConfig(
+  environment: Readonly<Record<string, string | undefined>> = process.env,
+): UserConfig {
+  const runtime = resolveStudioRuntimeConfig(environment);
+  const controlPlaneUrl = `http://${runtime.host}:${runtime.controlPlanePort}`;
+  return {
+    plugins: [react(), tailwindcss()],
+    server: {
+      // Independent mode keeps Vite's 5173, 5174, ... development behavior.
+      // OpenAlice mode binds the exact allocated loopback port and fails closed.
+      host: runtime.host,
+      port: runtime.httpPort,
+      strictPort: runtime.strictHttpPort,
+      open: runtime.openBrowser,
+      proxy: {
+        "/api": controlPlaneUrl,
+        "/health": controlPlaneUrl,
+      },
     },
-  },
-  resolve: {
-    alias: {
-      "@": path.resolve(import.meta.dirname, "./src"),
+    resolve: {
+      alias: {
+        "@": path.resolve(import.meta.dirname, "./src"),
+      },
     },
-  },
-});
+  };
+}
+
+export default defineConfig(() => studioViteConfig());
