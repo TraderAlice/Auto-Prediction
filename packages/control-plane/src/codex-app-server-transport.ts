@@ -327,7 +327,7 @@ export function createCodexAppServerConnectionFactory(input: Readonly<{
       clientInfo: {
         name: "prediction-market-harness",
         title: "Prediction Market Harness",
-        version: "0.0.0",
+        version: "0.1.0",
       },
       capabilities: {
         experimentalApi: true,

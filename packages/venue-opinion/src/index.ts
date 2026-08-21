@@ -54,7 +54,7 @@ export type OpinionOrderbookBestAsk = Readonly<{
 export const opinionManifest: VenueManifest = {
   venueId: "opinion",
   displayName: "Opinion",
-  adapterVersion: "0.0.0",
+  adapterVersion: "0.1.0",
   protocolIdentity: "openapi:2026-07-31",
   officialSources: [
     "https://docs.opinion.trade/developer-guide/opinion-open-api/overview",

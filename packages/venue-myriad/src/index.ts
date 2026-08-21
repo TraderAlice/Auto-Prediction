@@ -40,7 +40,7 @@ const ResponseSchema = z.object({
 export const myriadManifest: VenueManifest = {
   venueId: "myriad",
   displayName: "Myriad Markets",
-  adapterVersion: "0.0.0",
+  adapterVersion: "0.1.0",
   protocolIdentity: "api-v2.0.4:2026-07-31",
   officialSources: [
     "https://docs.myriad.markets/builders/myriad-api-reference",
