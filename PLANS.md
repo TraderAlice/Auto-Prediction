@@ -6,6 +6,16 @@ current dependency graph) is qualified on Node 22.22.1; Node 24 remains
 compatible but is no longer required. `@types/node` follows the Node 22 line so
 type checking cannot silently admit a Node 24-only API.
 
+OpenAlice Harness Studio is a mainline interoperability surface, not a second
+product runtime. Standalone and managed launches resolve through one shared
+configuration shape. Standalone mode default-fills `127.0.0.1:5173` for the
+Studio entry and `127.0.0.1:4100` for the control plane while retaining Vite's
+entry-port increment behavior. `OPENALICE_CAPABILITY=studio` replaces those
+defaults with two validated host allocations, makes the entry port strict, and
+keeps the same supervisor-owned child lifecycle and dynamic proxy topology.
+The manifest and full-process qualification must remain provider-free and must
+cover `/health`, readiness, HTML, and SSE through the allocated entry port.
+
 The 2026-08-20 first-time-user audit used one retained Grok Build session
 (`01a01dc2-1618-7853-984b-ba85974960eb`) against a clean `origin/main`
 worktree. The documented install, workspace check, and test path passed, while

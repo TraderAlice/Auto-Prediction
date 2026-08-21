@@ -2,12 +2,14 @@ import { spawn } from "node:child_process";
 import { createServer } from "node:net";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
+import { resolveStudioRuntimeConfig } from "./studio-runtime-config.mjs";
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 export function assertPortAvailable({
   host = "127.0.0.1",
   port = 4_100,
+  name = "control-plane",
   createProbeServer = createServer,
 } = {}) {
   return new Promise((resolveAvailable, rejectUnavailable) => {
@@ -16,7 +18,7 @@ export function assertPortAvailable({
     probe.once("error", (error) => {
       if (error.code === "EADDRINUSE") {
         rejectUnavailable(new Error(
-          `control-plane port http://${host}:${port} is already in use`,
+          `${name} port http://${host}:${port} is already in use`,
         ));
         return;
       }
@@ -29,6 +31,24 @@ export function assertPortAvailable({
       });
     });
   });
+}
+
+export async function assertStudioPortsAvailable(
+  runtime = resolveStudioRuntimeConfig(),
+  checkPort = assertPortAvailable,
+) {
+  await checkPort({
+    host: runtime.host,
+    port: runtime.controlPlanePort,
+    name: "control-plane",
+  });
+  if (runtime.strictHttpPort) {
+    await checkPort({
+      host: runtime.host,
+      port: runtime.httpPort,
+      name: "Studio",
+    });
+  }
 }
 
 export function stopChild(child, signal = "SIGTERM") {
@@ -78,6 +98,7 @@ export function startStudioChildren({
   spawnProcess = spawn,
   nodeExecutable = process.execPath,
   pnpmExecutable = process.env.npm_execpath,
+  environment = process.env,
 } = {}) {
   if (pnpmExecutable === undefined || pnpmExecutable.length === 0) {
     throw new Error("pnpm studio must be launched through pnpm");
@@ -90,7 +111,7 @@ export function startStudioChildren({
       [pnpmExecutable, "--filter", packageName, ...command],
       {
         cwd: repositoryRoot,
-        env: process.env,
+        env: environment,
         stdio: "inherit",
         detached: process.platform !== "win32",
       },
