@@ -26,30 +26,42 @@ increments the port when it is already occupied. Use the URL Vite prints. The
 command supervises both children: if either exits, the other is stopped too, so
 a control-plane bind failure cannot look like a successfully started Studio.
 
-### OpenAlice Harness Studio
+### Harness Web Surface
 
 The root [`harness.json`](../harness.json) advertises the standard `studio`
-capability. OpenAlice supplies one entry port and one internal control-plane
-port. Both launch modes use the same resolved runtime configuration: standalone
-mode fills the defaults above, while managed mode replaces them with the exact
-host ports and enables strict entry-port binding.
+capability. OpenAlice or another compatible Harness supervisor supplies one
+entry port and one internal control-plane port. Both launch modes use the same
+resolved runtime configuration: standalone mode fills the defaults above,
+while managed mode replaces them with the exact host ports and enables strict
+entry-port binding.
 
 A reproducible managed launch looks like this (choose two currently unused,
 different loopback ports):
 
 ```bash
-OPENALICE_CAPABILITY=studio \
-OPENALICE_CAPABILITY_HOST=127.0.0.1 \
-OPENALICE_CAPABILITY_PORTS='{"http":49321,"controlPlane":49322}' \
-OPENALICE_CAPABILITY_NO_OPEN=1 \
+HARNESS_CAPABILITY=studio \
+HARNESS_HOST=127.0.0.1 \
+HARNESS_PORTS='{"http":49321,"controlPlane":49322}' \
+HARNESS_NO_OPEN=1 \
 pnpm studio
 ```
 
 In managed mode, malformed or incomplete port input fails before either child
 starts. An occupied allocated port also fails the command; Vite never advances
 to another port. The Studio entry proxies `/health`, `/api`, and SSE traffic to
-the injected internal control-plane port. Standalone `pnpm studio` retains its
-existing `5173`, `5174`, … behavior.
+the injected internal control-plane port. The page, assets, API, SSE, and Vite
+HMR WebSocket remain current-origin paths, including when the Host is an
+`oa-surface-<24 hex>.localhost` Surface Router identity. Standalone `pnpm
+studio` retains its existing `5173`, `5174`, … behavior.
+
+Standalone operators may also select loopback ports explicitly:
+
+```bash
+pnpm studio -- --host 127.0.0.1 --port 15173 --control-plane-port 14100
+```
+
+The same arguments are accepted in managed mode only when they exactly repeat
+the injected values; conflicts fail before either child starts.
 
 Useful health checks:
 
@@ -182,8 +194,8 @@ Then verify in Studio:
 ## Troubleshooting
 
 - **Studio moved to 5174/5175:** expected Vite port increment; use the URL
-  printed by the process. This applies only to standalone mode; OpenAlice
-  managed mode fails on an occupied allocated port.
+  printed by the process. This applies only to standalone mode; Harness managed
+  mode fails on an occupied allocated port.
 - **Studio says offline:** check `http://127.0.0.1:4100/health` and the control
   plane terminal output.
 - **Model unavailable:** inspect the runtime/credential posture in Readiness.

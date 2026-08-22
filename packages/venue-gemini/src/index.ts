@@ -245,7 +245,7 @@ export class GeminiSandboxInertOrderGateway
 export const geminiManifest: VenueManifest = {
   venueId: "gemini-predictions",
   displayName: "Gemini Prediction Markets",
-  adapterVersion: "0.1.0",
+  adapterVersion: "0.1.1",
   protocolIdentity: "prediction-markets-v1:2026-07-30",
   officialSources: [
     "https://developer.gemini.com/prediction-markets/prediction-markets",

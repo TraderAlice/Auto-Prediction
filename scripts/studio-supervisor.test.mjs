@@ -77,7 +77,7 @@ test("rejects before either child starts when port 4100 is occupied", async () =
   await new Promise((resolveClose) => occupant.close(resolveClose));
 });
 
-test("preflights both exact ports only in OpenAlice managed mode", async () => {
+test("preflights both exact ports only in Harness managed mode", async () => {
   const calls = [];
   const checkPort = async (input) => calls.push(input);
   await assertStudioPortsAvailable({
@@ -137,13 +137,13 @@ test("runs the control plane without a watcher that can hide startup failure", (
       calls.push(args);
       return fakeChild();
     },
-    environment: { OPENALICE_CAPABILITY: "studio" },
+    environment: { HARNESS_CAPABILITY: "studio" },
   });
 
   assert.deepEqual(calls.map(([executable, args]) => [executable, args]), [
     ["/node", ["/pnpm.cjs", "--filter", "@pmh/control-plane", "exec", "tsx", "src/main.ts"]],
     ["/node", ["/pnpm.cjs", "--filter", "@pmh/studio", "dev"]],
   ]);
-  assert.equal(calls[0][2].env.OPENALICE_CAPABILITY, "studio");
-  assert.equal(calls[1][2].env.OPENALICE_CAPABILITY, "studio");
+  assert.equal(calls[0][2].env.HARNESS_CAPABILITY, "studio");
+  assert.equal(calls[1][2].env.HARNESS_CAPABILITY, "studio");
 });

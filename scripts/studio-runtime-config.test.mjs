@@ -2,16 +2,32 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-import { resolveStudioRuntimeConfig } from "./studio-runtime-config.mjs";
+import {
+  parseStudioCliOverrides,
+  resolveStudioRuntimeConfig,
+  studioChildEnvironment,
+} from "./studio-runtime-config.mjs";
 
-test("publishes the OpenAlice Harness Studio capability manifest", async () => {
+const managedEnvironment = Object.freeze({
+  HARNESS_CAPABILITY: "studio",
+  HARNESS_HOST: "127.0.0.1",
+  HARNESS_PORTS: '{"http":49321,"controlPlane":49322}',
+  HARNESS_NO_OPEN: "1",
+});
+
+test("publishes the generic Harness Studio capability manifest", async () => {
   const manifest = JSON.parse(await readFile(
     new URL("../harness.json", import.meta.url),
     "utf8",
   ));
+  const productPackage = JSON.parse(await readFile(
+    new URL("../package.json", import.meta.url),
+    "utf8",
+  ));
+  assert.equal(manifest.version, productPackage.version);
   assert.deepEqual(manifest, {
     manifestVersion: 1,
-    version: "0.1.0",
+    version: "0.1.1",
     capabilities: {
       studio: {
         command: ["pnpm", "studio"],
@@ -23,13 +39,8 @@ test("publishes the OpenAlice Harness Studio capability manifest", async () => {
   });
 });
 
-test("parses exact managed Studio ports", () => {
-  assert.deepEqual(resolveStudioRuntimeConfig({
-    OPENALICE_CAPABILITY: "studio",
-    OPENALICE_CAPABILITY_HOST: "127.0.0.1",
-    OPENALICE_CAPABILITY_PORTS: '{"http":49321,"controlPlane":49322}',
-    OPENALICE_CAPABILITY_NO_OPEN: "1",
-  }), {
+test("parses exact generic Harness ports", () => {
+  assert.deepEqual(resolveStudioRuntimeConfig(managedEnvironment), {
     managed: true,
     host: "127.0.0.1",
     httpPort: 49_321,
@@ -39,7 +50,7 @@ test("parses exact managed Studio ports", () => {
   });
 });
 
-test("preserves independent Studio defaults", () => {
+test("preserves standalone defaults and supports explicit standalone ports", () => {
   assert.deepEqual(resolveStudioRuntimeConfig({}), {
     managed: false,
     host: "127.0.0.1",
@@ -48,46 +59,115 @@ test("preserves independent Studio defaults", () => {
     strictHttpPort: false,
     openBrowser: false,
   });
+  assert.deepEqual(resolveStudioRuntimeConfig({}, [
+    "--host=localhost",
+    "--port", "15173",
+    "--control-plane-port=14100",
+  ]), {
+    managed: false,
+    host: "localhost",
+    httpPort: 15_173,
+    controlPlanePort: 14_100,
+    strictHttpPort: false,
+    openBrowser: false,
+  });
+});
+
+test("only the generic studio capability activates managed mode", () => {
   assert.equal(resolveStudioRuntimeConfig({
-    OPENALICE_CAPABILITY: "another-capability",
+    HARNESS_CAPABILITY: "another-capability",
   }).managed, false);
+  assert.equal(resolveStudioRuntimeConfig({
+    OPENALICE_CAPABILITY: "studio",
+    OPENALICE_CAPABILITY_HOST: "127.0.0.1",
+    OPENALICE_CAPABILITY_PORTS: '{"http":49321,"controlPlane":49322}',
+  }).managed, false);
+});
+
+test("accepts equal managed CLI values and rejects conflicts", () => {
+  assert.equal(resolveStudioRuntimeConfig(managedEnvironment, [
+    "--host", "127.0.0.1",
+    "--http-port=49321",
+    "--control-plane-port", "49322",
+  ]).managed, true);
+  assert.throws(
+    () => resolveStudioRuntimeConfig(managedEnvironment, ["--port", "49323"]),
+    /conflicts with Harness injection/,
+  );
+  assert.throws(
+    () => resolveStudioRuntimeConfig(managedEnvironment, ["--host=localhost"]),
+    /conflicts with Harness injection/,
+  );
+});
+
+test("propagates one resolved config to standalone children", () => {
+  const environment = studioChildEnvironment({
+    managed: false,
+    host: "127.0.0.1",
+    httpPort: 15_173,
+    controlPlanePort: 14_100,
+    strictHttpPort: false,
+    openBrowser: false,
+  }, { PATH: "/bin" });
+  assert.deepEqual(resolveStudioRuntimeConfig(environment), {
+    managed: false,
+    host: "127.0.0.1",
+    httpPort: 15_173,
+    controlPlanePort: 14_100,
+    strictHttpPort: false,
+    openBrowser: false,
+  });
+  assert.equal(environment.PATH, "/bin");
+});
+
+test("parses supported Studio CLI spellings", () => {
+  assert.deepEqual(parseStudioCliOverrides([
+    "--",
+    "--host", "127.0.0.1",
+    "--port=15173",
+    "--control-plane-port", "14100",
+  ]), {
+    host: "127.0.0.1",
+    httpPort: 15_173,
+    controlPlanePort: 14_100,
+  });
 });
 
 for (const [name, environment, diagnostic] of [
   ["missing ports", {
-    OPENALICE_CAPABILITY: "studio",
-    OPENALICE_CAPABILITY_HOST: "127.0.0.1",
-  }, /PORTS is required/],
+    HARNESS_CAPABILITY: "studio",
+    HARNESS_HOST: "127.0.0.1",
+  }, /HARNESS_PORTS is required/],
   ["invalid JSON", {
-    OPENALICE_CAPABILITY: "studio",
-    OPENALICE_CAPABILITY_HOST: "127.0.0.1",
-    OPENALICE_CAPABILITY_PORTS: "not-json",
+    HARNESS_CAPABILITY: "studio",
+    HARNESS_HOST: "127.0.0.1",
+    HARNESS_PORTS: "not-json",
   }, /valid JSON/],
   ["missing named port", {
-    OPENALICE_CAPABILITY: "studio",
-    OPENALICE_CAPABILITY_HOST: "127.0.0.1",
-    OPENALICE_CAPABILITY_PORTS: '{"http":49321}',
+    HARNESS_CAPABILITY: "studio",
+    HARNESS_HOST: "127.0.0.1",
+    HARNESS_PORTS: '{"http":49321}',
   }, /exactly http and controlPlane/],
   ["non-integer port", {
-    OPENALICE_CAPABILITY: "studio",
-    OPENALICE_CAPABILITY_HOST: "127.0.0.1",
-    OPENALICE_CAPABILITY_PORTS: '{"http":49321.5,"controlPlane":49322}',
+    HARNESS_CAPABILITY: "studio",
+    HARNESS_HOST: "127.0.0.1",
+    HARNESS_PORTS: '{"http":49321.5,"controlPlane":49322}',
   }, /http must be an integer/],
   ["out-of-range port", {
-    OPENALICE_CAPABILITY: "studio",
-    OPENALICE_CAPABILITY_HOST: "127.0.0.1",
-    OPENALICE_CAPABILITY_PORTS: '{"http":0,"controlPlane":49322}',
+    HARNESS_CAPABILITY: "studio",
+    HARNESS_HOST: "127.0.0.1",
+    HARNESS_PORTS: '{"http":0,"controlPlane":49322}',
   }, /http must be an integer/],
   ["duplicate ports", {
-    OPENALICE_CAPABILITY: "studio",
-    OPENALICE_CAPABILITY_HOST: "127.0.0.1",
-    OPENALICE_CAPABILITY_PORTS: '{"http":49321,"controlPlane":49321}',
+    HARNESS_CAPABILITY: "studio",
+    HARNESS_HOST: "127.0.0.1",
+    HARNESS_PORTS: '{"http":49321,"controlPlane":49321}',
   }, /must be different/],
   ["remote host", {
-    OPENALICE_CAPABILITY: "studio",
-    OPENALICE_CAPABILITY_HOST: "0.0.0.0",
-    OPENALICE_CAPABILITY_PORTS: '{"http":49321,"controlPlane":49322}',
-  }, /must be 127\.0\.0\.1/],
+    HARNESS_CAPABILITY: "studio",
+    HARNESS_HOST: "0.0.0.0",
+    HARNESS_PORTS: '{"http":49321,"controlPlane":49322}',
+  }, /HARNESS_HOST must be 127\.0\.0\.1/],
 ]) {
   test(`fails closed for ${name}`, () => {
     assert.throws(() => resolveStudioRuntimeConfig(environment), diagnostic);

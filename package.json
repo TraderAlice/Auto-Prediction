@@ -1,6 +1,6 @@
 {
   "name": "prediction-market-harness",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "Auto Prediction: an AI-native semantic arbitrage research harness for prediction markets.",
   "packageManager": "pnpm@11.13.1",

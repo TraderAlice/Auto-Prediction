@@ -149,7 +149,7 @@ export type PolymarketUsBboObservation = Readonly<{
 export const polymarketUsManifest: VenueManifest = {
   venueId: "polymarket-us",
   displayName: "Polymarket US",
-  adapterVersion: "0.1.0",
+  adapterVersion: "0.1.1",
   protocolIdentity: "gateway-rest-v1:2026-08-01",
   officialSources: [
     "https://docs.polymarket.us/api-reference/introduction",
