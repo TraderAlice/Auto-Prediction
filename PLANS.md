@@ -1,7 +1,7 @@
 # Plans
 
-The canonical Auto Prediction product version is **0.1.0**. The root package,
-OpenAlice Harness manifest, private workspace packages, Studio, CLI, and
+The canonical Auto Prediction product version is **0.1.1**. The root package,
+Harness manifest, private workspace packages, Studio, CLI, and
 Agent-runtime client identity carry the same version. Venue adapter identities
 and public fixture-capture User-Agents follow it as well, so every observable
 surface describes one coherent repository release.
@@ -12,15 +12,16 @@ current dependency graph) is qualified on Node 22.22.1; Node 24 remains
 compatible but is no longer required. `@types/node` follows the Node 22 line so
 type checking cannot silently admit a Node 24-only API.
 
-OpenAlice Harness Studio is a mainline interoperability surface, not a second
-product runtime. Standalone and managed launches resolve through one shared
-configuration shape. Standalone mode default-fills `127.0.0.1:5173` for the
-Studio entry and `127.0.0.1:4100` for the control plane while retaining Vite's
-entry-port increment behavior. `OPENALICE_CAPABILITY=studio` replaces those
-defaults with two validated host allocations, makes the entry port strict, and
-keeps the same supervisor-owned child lifecycle and dynamic proxy topology.
-The manifest and full-process qualification must remain provider-free and must
-cover `/health`, readiness, HTML, and SSE through the allocated entry port.
+Harness Studio is a vendor-neutral mainline interoperability surface, not a
+second product runtime. Standalone and managed launches resolve through one
+shared configuration shape. Standalone mode default-fills `127.0.0.1:5173` for
+the Studio entry and `127.0.0.1:4100` for the control plane while retaining
+Vite's entry-port increment behavior. `HARNESS_CAPABILITY=studio` replaces
+those defaults with two validated host allocations, makes the entry port
+strict, and keeps the same supervisor-owned child lifecycle and dynamic proxy
+topology. Full-process qualification is provider-free and covers standalone,
+fail-closed injection, root/assets/API/SSE/HMR WebSocket through a Surface Host,
+browser suppression, and complete SIGTERM port release.
 
 The 2026-08-20 first-time-user audit used one retained Grok Build session
 (`01a01dc2-1618-7853-984b-ba85974960eb`) against a clean `origin/main`

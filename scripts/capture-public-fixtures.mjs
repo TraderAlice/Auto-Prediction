@@ -142,7 +142,7 @@ async function capture(name) {
   const response = await fetch(definition.sourceUrl, {
     headers: {
       accept: "application/json",
-      "user-agent": "prediction-market-harness-fixture-capture/0.1.0",
+      "user-agent": "prediction-market-harness-fixture-capture/0.1.1",
     },
     redirect: "follow",
     signal: AbortSignal.timeout(30_000),

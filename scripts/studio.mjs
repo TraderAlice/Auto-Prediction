@@ -4,12 +4,17 @@ import {
   stopChild,
   superviseStudio,
 } from "./studio-supervisor.mjs";
-import { resolveStudioRuntimeConfig } from "./studio-runtime-config.mjs";
+import {
+  resolveStudioRuntimeConfig,
+  studioChildEnvironment,
+} from "./studio-runtime-config.mjs";
 
 async function main() {
-  const runtime = resolveStudioRuntimeConfig();
+  const runtime = resolveStudioRuntimeConfig(process.env, process.argv.slice(2));
   await assertStudioPortsAvailable(runtime);
-  const children = startStudioChildren({ environment: process.env });
+  const children = startStudioChildren({
+    environment: studioChildEnvironment(runtime),
+  });
   let shuttingDown = false;
 
   for (const signal of ["SIGINT", "SIGTERM"]) {

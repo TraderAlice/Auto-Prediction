@@ -3,7 +3,7 @@
 An AI-native research system for finding, testing, and retaining semantic
 arbitrage hypotheses across prediction markets.
 
-Current product version: **0.1.0**.
+Current product version: **0.1.1**.
 
 ![Auto Prediction — AI-native semantic arbitrage research](apps/studio/public/og.png)
 

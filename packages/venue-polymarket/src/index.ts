@@ -64,7 +64,7 @@ const BookMessageSchema = z.object({
 export const polymarketManifest: VenueManifest = {
   venueId: "polymarket-global",
   displayName: "Polymarket Predictions",
-  adapterVersion: "0.1.0",
+  adapterVersion: "0.1.1",
   protocolIdentity: "gamma-rest+combo-rfq:2026-07-31",
   officialSources: ["https://docs.polymarket.com/"],
   mechanisms: ["Polygon conditional outcome-token CLOB", "Combo/RFQ"],

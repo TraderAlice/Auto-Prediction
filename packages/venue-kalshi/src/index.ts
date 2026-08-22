@@ -139,7 +139,7 @@ export class KalshiDemoInertOrderGateway
 export const kalshiManifest: VenueManifest = {
   venueId: "kalshi",
   displayName: "Kalshi",
-  adapterVersion: "0.1.0",
+  adapterVersion: "0.1.1",
   protocolIdentity: "trade-api-v2:2026-07-31",
   officialSources: ["https://docs.kalshi.com/welcome"],
   mechanisms: ["centralized binary and multivariate event contracts"],
