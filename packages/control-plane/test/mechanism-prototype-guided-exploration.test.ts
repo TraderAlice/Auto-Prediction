@@ -802,6 +802,11 @@ describe("mechanism-prototype exploration Agent tools", () => {
     expect(first.entries.map((entry) => entry.listingRef).sort()).toEqual([
       "venue-race:italy", "venue-sport:constructors",
     ]);
+    expect(first.entries.find((entry) =>
+      entry.listingRef === "venue-sport:constructors"
+    )).toMatchObject({ predicateFamilies: ["SPORTS_RESULT"],
+      sourcePredicateFamilyOverlap: false,
+      strictOutsideSourcePredicateFamily: true });
     expect(new Set(first.entries.map((entry) => entry.venueId)).size).toBe(2);
     expect(() => browseMechanismPrototypeExplorationDirectory({
       researchInput: lens.currentInputRevision, corpus: snapshot, offset: 0, limit: 25,

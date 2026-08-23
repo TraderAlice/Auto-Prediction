@@ -4,6 +4,7 @@ import {
   assertMarketOntologySnapshot,
   buildMarketCorpusSnapshot,
   buildMarketOntologySnapshot,
+  marketOntologyPredicateFamiliesForText,
   type DiscoveryCatalogListing,
 } from "../src/index.js";
 
@@ -57,6 +58,15 @@ function corpus(listings: readonly DiscoveryCatalogListing[]) {
 }
 
 describe("evidence-bound market ontology", () => {
+  it("distinguishes an election candidate named Bill from legislation", () => {
+    expect(marketOntologyPredicateFamiliesForText(
+      "Tennessee US Senate Winner — Bill Hagerty",
+    )).toEqual(["ELECTION_OR_OFFICE"]);
+    expect(marketOntologyPredicateFamiliesForText(
+      "Will the Digital Asset Market Clarity bill pass the Senate?",
+    )).toEqual(expect.arrayContaining(["POLICY_OR_LEGAL"]));
+  });
+
   it("keeps world proposition, settlement contract, and traded state distinct", () => {
     const snapshot = buildMarketOntologySnapshot(corpus([
       listing({

@@ -39,13 +39,13 @@ const STOP_WORDS = new Set([
 ]);
 
 const PREDICATE_PATTERNS = Object.freeze([
-  ["ELECTION_OR_OFFICE", /\b(?:elect|elected|election|nominee|nomination|president|prime minister|governor|mayor|control (?:the )?(?:house|senate)|speaker)\b/iu],
+  ["ELECTION_OR_OFFICE", /\b(?:elect|elected|election|nominee|nomination|president|prime minister|governor|mayor|control (?:the )?(?:house|senate)|(?:house|senate) (?:winner|race|seat|majority)|speaker)\b/iu],
   ["APPOINTMENT_OR_DEPARTURE", /\b(?:appoint|appointed|appointment|resign|resigns|resigned|leave|leaves|depart|departed|removed|fired|successor|replace|replaced)\b/iu],
   ["DEATH_OR_INCAPACITY", /\b(?:die|dies|death|dead|killed|assassinated|shot|shooting|injured|hospitalized|incapacitated)\b/iu],
   ["PUBLIC_ACTION", /\b(?:appear|attend|debate|drink|eat|livestream|stream|speech|travel|visit|perform|play|announce|say|post|tweet)\b/iu],
   ["SPORTS_RESULT", /\b(?:champion|championship|cup|league|tournament|game|match|score|playoff|final|award|rookie|cy young|mvp|ufc|nba|nfl|mlb|mls)\b/iu],
   ["PRICE_OR_METRIC", /\b(?:price|index|average|rate|inflation|cpi|gdp|unemployment|temperature|rainfall|calls|volume|percent|percentage|bitcoin|btc|ethereum|eth)\b/iu],
-  ["POLICY_OR_LEGAL", /\b(?:law|bill|ban|tariff|sanction|ceasefire|treaty|court|convict|indict|approve|approval|regulation|rate cut|rate hike)\b/iu],
+  ["POLICY_OR_LEGAL", /\b(?:law|legislation|ban|tariff|sanction|ceasefire|treaty|court|convict|indict|approve|approval|regulation|rate cut|rate hike|bill\b.{0,40}\b(?:pass|enact|sign|veto|vote)|(?:pass|enact|sign|veto|vote)\b.{0,40}\bbill)\b/iu],
   ["CONFLICT_OR_DISRUPTION", /\b(?:war|attack|invade|invasion|strike|shutdown|cancel|canceled|cancelled|postpone|postponed|abandon|abandoned)\b/iu],
   ["WEATHER_OR_NATURAL", /\b(?:weather|temperature|rain|rainfall|snow|storm|hurricane|earthquake|wildfire)\b/iu],
 ] as const);
