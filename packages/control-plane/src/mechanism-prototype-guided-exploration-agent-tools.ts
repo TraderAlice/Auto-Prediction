@@ -31,6 +31,7 @@ import {
   type MechanismPrototypeExplorationRoleSearchResult,
 } from "./mechanism-prototype-guided-exploration.js";
 import type { MarketCorpusSnapshot } from "./market-corpus.js";
+import { marketOntologyPredicateFamiliesForText } from "./market-ontology.js";
 import type { WorldStateMechanismPrototypeProposal } from
   "./world-state-mechanism-prototype.js";
 import { browseMechanismPrototypeExplorationDirectory,
@@ -491,7 +492,7 @@ export class MechanismPrototypeExplorationAgentToolHost implements AgentToolHost
     const unique = [...new Map(entries.map((entry) => [entry.listingRef, entry])).values()]
       .sort((left, right) => left.listingRef.localeCompare(right.listingRef));
     if (this.researchInput.axis !== "SURFACE_DOMAIN") return Object.freeze(unique);
-    const outsideSource = unique.filter((entry) => entry.outsideSourcePredicateFamily);
+    const outsideSource = unique.filter((entry) => entry.strictOutsideSourcePredicateFamily);
     if (outsideSource.length > 0) return Object.freeze(outsideSource);
     return this.#directoryPages.size >= 3 ? Object.freeze(unique) : Object.freeze([]);
   }
@@ -503,7 +504,15 @@ export class MechanismPrototypeExplorationAgentToolHost implements AgentToolHost
       entry.title
     ));
     const queryTokens = groundingTokens(values);
-    return [...queryTokens].some((token) => pinnedTokens.has(token));
+    if (![...queryTokens].some((token) => pinnedTokens.has(token))) return false;
+    if (this.researchInput.axis !== "SURFACE_DOMAIN") return true;
+    const sourceFamilies = new Set(this.researchInput.axisContract?.sourcePredicateFamilies ?? []);
+    const pinnedFamilies = new Set(this.#pinnedNeighborhood.entries.flatMap((entry) =>
+      entry.predicateFamilies.filter((family) => !sourceFamilies.has(family))
+    ));
+    const queryFamilies = marketOntologyPredicateFamiliesForText(values.join(" "));
+    return queryFamilies.some((family) => pinnedFamilies.has(family)) &&
+      queryFamilies.every((family) => !sourceFamilies.has(family));
   }
 
   public manifest(protocol: string): readonly AgentRuntimeToolDefinition[] {

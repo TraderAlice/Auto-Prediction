@@ -34,7 +34,7 @@ function makeFrame(rawText, eventName, ordinal) {
 
 async function fetchJson(url) {
   const response = await fetch(url, {
-    headers: { "user-agent": "prediction-market-harness/0.1.1" },
+    headers: { "user-agent": "prediction-market-harness/0.1.2" },
   });
   if (!response.ok) {
     throw new Error(`${url} returned HTTP ${response.status}`);

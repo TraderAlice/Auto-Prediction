@@ -27,7 +27,7 @@ test("publishes the generic Harness Studio capability manifest", async () => {
   assert.equal(manifest.version, productPackage.version);
   assert.deepEqual(manifest, {
     manifestVersion: 1,
-    version: "0.1.1",
+    version: "0.1.2",
     capabilities: {
       studio: {
         command: ["pnpm", "studio"],

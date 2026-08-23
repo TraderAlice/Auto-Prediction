@@ -1,6 +1,6 @@
 # Plans
 
-The canonical Auto Prediction product version is **0.1.1**. The root package,
+The canonical Auto Prediction product version is **0.1.2**. The root package,
 Harness manifest, private workspace packages, Studio, CLI, and
 Agent-runtime client identity carry the same version. Venue adapter identities
 and public fixture-capture User-Agents follow it as well, so every observable
@@ -22,6 +22,18 @@ strict, and keeps the same supervisor-owned child lifecycle and dynamic proxy
 topology. Full-process qualification is provider-free and covers standalone,
 fail-closed injection, root/assets/API/SSE/HMR WebSocket through a Surface Host,
 browser suppression, and complete SIGTERM port release.
+
+Release 0.1.2 closes issue #71's data-bearing Workspace admission failure.
+The manifest-level `/health` route is now a bounded Surface check: it reports
+whether Studio is safe to load plus compact startup and catalog-refresh state,
+without awaiting durable reconciliation or materializing product projections.
+`/api/v1/readiness` remains the detailed startup diagnostic. Anonymous startup
+catalog refresh runs after local readiness under the control-plane lifecycle,
+then reconciles catalog-derived state and invalidates the bounded projection;
+slow or failed venue reads cannot hold Harness admission open indefinitely.
+Qualification includes a real managed subprocess whose HTTP fetches remain
+deliberately blocked past the supervisor window while `/health` succeeds and
+SIGTERM still releases both injected ports.
 
 The 2026-08-20 first-time-user audit used one retained Grok Build session
 (`01a01dc2-1618-7853-984b-ba85974960eb`) against a clean `origin/main`

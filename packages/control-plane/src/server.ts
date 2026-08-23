@@ -1497,7 +1497,7 @@ export function createControlPlane(options?: {
   catalogDesk?: FixtureCatalogDiscoveryDesk;
   catalogObservationDesk?: CatalogObservationDesk;
   catalogRefreshScheduler?: CatalogRefreshScheduler;
-  refreshCatalogOnReady?: boolean;
+  refreshCatalogAfterReady?: boolean;
   discoveryLedger?: DiscoveryLedger;
   discoveryStore?: DiscoveryRunStore;
   discoveryPool?: DiscoveryPool;
@@ -4514,9 +4514,6 @@ export function createControlPlane(options?: {
       catalogDesk.load(),
       realCandidateReady,
       realCandidateReady.then(() => candidateWatchDesk.load()),
-      ...(options?.refreshCatalogOnReady === true
-        ? [catalogRefreshScheduler.runNow("STARTUP").promise]
-        : []),
     ]);
     transitionStartup("AGENT_RECONCILIATION");
     await runStartupReconciliationStep(
@@ -6423,6 +6420,40 @@ export function createControlPlane(options?: {
     invalidationFlushTimer = setTimeout(flushProjectionInvalidation, 25);
     invalidationFlushTimer.unref();
   };
+  const reconcileCatalogRefresh = (
+    provenanceRef: string,
+    reconcileRuleEvidence: boolean,
+  ): void => {
+    reconcileWorldStateSubjectBindingResearch();
+    reconcileWorldStateMechanismObservations();
+    reconcileRelationDiscoveryTasks();
+    migrateStandingRouteSeedCampaigns();
+    reconcileResearchAttentionRelationCampaign();
+    reconcileResearchDecisionOutcomeObservations(
+      "CATALOG_RECONCILIATION",
+      provenanceRef,
+    );
+    reconcileDiscoverySignals();
+    if (reconcileRuleEvidence) reconcileRuleEvidenceAgentTasks();
+  };
+  // Public catalog refresh is useful startup work, but it is not part of the
+  // Surface admission contract. A retained workspace is already safe to load
+  // after local recovery; slow venue reads continue under the control-plane
+  // lifecycle and invalidate the bounded projection when they settle.
+  const startupCatalogRefresh = ready.then(async () => {
+    if (options?.refreshCatalogAfterReady !== true) return null;
+    const pending = catalogRefreshScheduler.runNow("STARTUP").promise;
+    await broadcastProjection();
+    const result = await pending;
+    reconcileCatalogRefresh("catalog:startup-refresh", true);
+    await broadcastProjection();
+    return result;
+  });
+  void startupCatalogRefresh.catch(() => {
+    // The scheduler retains FAILED state. Startup remains usable with retained
+    // catalog evidence, and a later operator or scheduled refresh may recover.
+    void broadcastProjection();
+  });
   const reconcileAfterAgentTaskCompletion = async (taskId: Hash): Promise<void> => {
     const task = agentExecutionRegistry.snapshot().tasks.find((item) => item.taskId === taskId);
     if (task?.kind === "WORLD_STATE_MECHANISM_RESEARCH") {
@@ -7041,50 +7072,25 @@ export function createControlPlane(options?: {
       return;
     }
     if (request.method === "GET" && url.pathname === "/health") {
-      await ready;
-      const discoveryDesk = discoveryLedger.projection();
-      writeJson(response, 200, {
-        ok: true,
+      const startup = startupReadinessProjection();
+      const catalogRefresh = catalogRefreshScheduler.projection();
+      const safeToLoad = startup.status !== "FAILED";
+      writeJson(response, safeToLoad ? 200 : 503, {
+        schemaVersion: "pmh.studio-surface-health.v1",
+        ok: safeToLoad,
+        safeToLoad,
+        startup: Object.freeze({
+          status: startup.status,
+          phase: startup.phase,
+          diagnostic: startup.diagnostic,
+        }),
+        catalogRefresh: Object.freeze({
+          status: catalogRefresh.status,
+          lastResult: catalogRefresh.lastResult,
+        }),
         liveExecutionEnabled: false,
-        retainedDiscoveryRuns: discoveryDesk.runCount,
-        operationalStorage: discoveryDesk.storage,
-        modelProvider: modelRuntime.projection,
-        investigator: piRuntime.projection,
-        investigationDesk: investigationDesk.projection(),
-        catalogContext: catalogDesk.projection(),
-        catalogObservation: catalogObservationDesk.projection(),
-        catalogRefreshScheduler: catalogRefreshScheduler.projection(),
-        opportunityRadar: catalogObservationDesk.radar(),
-        marketCorpus: projectMarketCorpus(catalogObservationDesk.corpus()),
-        marketArchaeologist: marketArchaeologistDesk.projection(),
-        searchQuoteEnrichment: searchQuoteEnrichmentDesk.projection(),
-        searchAttention: searchAttentionOutbox.projection(),
-        semanticRelationGraph: semanticGraph(catalogObservationDesk.corpus()),
-        semanticReview: semanticReviewDesk.projection(),
-        probabilityEstimation: probabilityEstimationDesk.projection(),
-        probabilityEstimationScheduler: probabilityEstimationScheduler.projection(),
-        probabilityCalibration: probabilityCalibrationDesk.projection(),
-        probabilityResolutionAcquisition: probabilityResolutionAcquisitionScheduler.projection(),
-        aiUsage: aiUsageLedger.projection(),
-        runtimeConfiguration: aiRuntimeConfigurationDesk.projection(),
-        agentExecution: agentExecutionRegistry.projection(),
-        premiseAnalysis: premiseAnalysisDesk.projection(),
-        premiseAnalysisScheduler: premiseAnalysisScheduler.projection(),
-        premiseEvidenceRouting: premiseEvidenceRoutingScheduler.projection(),
-        premiseRouteExpansion: premiseRouteExpansionScheduler.projection(),
-        officialSourceDiscovery: officialSourceDiscoveryScheduler.projection(),
-        evidenceAcquisition: evidenceAcquisitionScheduler.projection(),
-        ruleEvidenceClaims: ruleEvidenceClaimScheduler.projection(),
-        semanticReviewAdmission: buildSemanticReviewAdmissionProjection(
-          baseSemanticReviewCandidates().map((candidate) => candidate.proposal),
-        ),
-        opportunityLifecycle: opportunityLifecycleDesk.projection(),
-        realCandidatePreflight: realCandidatePreflightDesk.projection(),
-        realCandidateDepth: realCandidatePreflightDesk.depthProjection(),
-        realCandidateDisposition:
-          realCandidatePreflightDesk.dispositionProjection(),
-        realCandidateRescreen: realCandidatePreflightDesk.rescreenProjection(),
-        candidateWatch: candidateWatchDesk.projection(),
+        externalWriteAuthority: false,
+        valueMovingAuthority: false,
       });
       return;
     }
@@ -9623,17 +9629,7 @@ export function createControlPlane(options?: {
       const pending = catalogRefreshScheduler.runNow("OPERATOR").promise;
       await broadcastProjection();
       const result = await pending;
-      reconcileWorldStateSubjectBindingResearch();
-      reconcileWorldStateMechanismObservations();
-      reconcileRelationDiscoveryTasks();
-      migrateStandingRouteSeedCampaigns();
-      reconcileResearchAttentionRelationCampaign();
-      reconcileResearchDecisionOutcomeObservations(
-        "CATALOG_RECONCILIATION",
-        "catalog:operator-refresh",
-      );
-      reconcileDiscoverySignals();
-      reconcileRuleEvidenceAgentTasks();
+      reconcileCatalogRefresh("catalog:operator-refresh", true);
       await broadcastProjection();
       tickSearchIssues();
       writeJson(
@@ -10663,16 +10659,7 @@ export function createControlPlane(options?: {
         void invocation.promise.then(
           () => {
             try {
-              reconcileWorldStateSubjectBindingResearch();
-              reconcileWorldStateMechanismObservations();
-              reconcileRelationDiscoveryTasks();
-              migrateStandingRouteSeedCampaigns();
-              reconcileResearchAttentionRelationCampaign();
-              reconcileResearchDecisionOutcomeObservations(
-                "CATALOG_RECONCILIATION",
-                "catalog:scheduled-refresh",
-              );
-              reconcileDiscoverySignals();
+              reconcileCatalogRefresh("catalog:scheduled-refresh", false);
             } catch {
               // Retained tasks and route episodes remain authoritative. A later
               // successful refresh retries reconciliation without terminating
@@ -11017,6 +11004,7 @@ export function createControlPlane(options?: {
     opportunityLifecycleDesk,
     projection,
     ready,
+    startupCatalogRefresh,
   };
 }
 
@@ -11036,7 +11024,7 @@ export async function startControlPlane(
   const { server, ready } = createControlPlane({
     discoveryStore,
     investigationStore: discoveryStore,
-    refreshCatalogOnReady: true,
+    refreshCatalogAfterReady: true,
     startupGate,
   });
   try {

@@ -18,6 +18,8 @@ export type MechanismPrototypeExplorationDirectoryEntry = Readonly<{
   componentRoleCue: boolean;
   aggregateRoleCue: boolean;
   outsideSourcePredicateFamily: boolean;
+  sourcePredicateFamilyOverlap: boolean;
+  strictOutsideSourcePredicateFamily: boolean;
 }>;
 
 export type MechanismPrototypeExplorationDirectoryPage = Readonly<{
@@ -57,6 +59,9 @@ function annotatedEntries(input: Readonly<{
       !excludedRefs.has(listing.listingRef))
     .map((listing) => {
       const predicateFamilies = marketOntologyPredicateFamiliesForText(listing.title);
+      const sourcePredicateFamilyOverlap = predicateFamilies.some((family) =>
+        sourceFamilies.has(family)
+      );
       return Object.freeze({
         listingRef: listing.listingRef,
         venueId: listing.venueId,
@@ -67,6 +72,8 @@ function annotatedEntries(input: Readonly<{
         outsideSourcePredicateFamily: predicateFamilies.some((family) =>
           !sourceFamilies.has(family)
         ),
+        sourcePredicateFamilyOverlap,
+        strictOutsideSourcePredicateFamily: !sourcePredicateFamilyOverlap,
       });
     }));
 }

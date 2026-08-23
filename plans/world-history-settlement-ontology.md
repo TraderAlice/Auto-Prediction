@@ -765,3 +765,21 @@ available. The first lexical or role search must share distinctive vocabulary
 with the pinned exact title. This is a falsifiable query-grounding constraint,
 not a semantic relation claim; ordinary axis admission, inspection, hypothesis
 and verifier gates remain authoritative.
+
+V16 (`f31e2b36…`) proved that explicit attention state can be selected and
+carried through source disclosure, but falsified token overlap as a sufficient
+grounding contract. The run browsed three distinct pages, pinned one exact
+directory neighborhood, read context and issued two accepted role searches plus
+one flat search. All three remained Tennessee/Senate queries. The shared token
+`Tennessee` satisfied the lexical gate while `Senate` restored the source
+predicate. Twelve invocations consumed 236,073 input / 3,149 output / 1,974
+reasoning tokens before campaign-budget interruption.
+
+The specimen also exposed an ontology defect: `Tennessee US Senate Winner —
+Bill Hagerty` was classified as `POLICY_OR_LEGAL` because the person's given
+name matched the uncontextualized legal keyword `bill`, while `Senate Winner`
+was not recognized as an election form. V17 therefore fixes this polysemy,
+distinguishes strict outside-source families from mixed-family entries, limits
+surface-domain pin candidates to strict outside-family objects when available,
+and requires the first query to share both distinctive vocabulary and a
+non-source predicate family with the pin while containing no source family.
