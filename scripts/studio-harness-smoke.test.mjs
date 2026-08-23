@@ -6,6 +6,7 @@ import http from "node:http";
 import { connect, createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import test from "node:test";
 
 const repositoryRoot = new URL("..", import.meta.url);
@@ -364,6 +365,71 @@ test("managed manifest command serves the complete same-origin surface on exact 
     assert.doesNotMatch(output, /Local:\s+http:\/\/127\.0\.0\.1:517[3-9]/u);
   } finally {
     await Promise.all(defaultHolders.map(close));
+    await stopCapability(launch);
+    await Promise.all([assertPortReleased(httpPort), assertPortReleased(controlPlanePort)]);
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("managed readiness is bounded while startup catalog refresh remains slow", {
+  timeout: 60_000,
+}, async () => {
+  const [httpPort, controlPlanePort] = await allocateLoopbackPorts(2);
+  const directory = await mkdtemp(join(tmpdir(), "auto-prediction-slow-catalog-"));
+  const fetchPreload = join(directory, "slow-global-fetch.mjs");
+  await writeFile(fetchPreload, [
+    "const originalFetch = globalThis.fetch;",
+    "globalThis.fetch = async (input, init) => {",
+    "  const target = typeof input === 'string' ? input : input?.url ?? String(input);",
+    "  if (/^https?:/u.test(target)) {",
+    "    await new Promise((resolve) => setTimeout(resolve, 120_000));",
+    "  }",
+    "  return originalFetch(input, init);",
+    "};",
+    "",
+  ].join("\n"), "utf8");
+  const nodeOptions = [
+    process.env.NODE_OPTIONS,
+    `--import=${pathToFileURL(fetchPreload).href}`,
+  ].filter(Boolean).join(" ");
+  const launch = await startCapability({
+    environment: cleanEnvironment({
+      HARNESS_CAPABILITY: "studio",
+      HARNESS_HOST: "127.0.0.1",
+      HARNESS_PORTS: JSON.stringify({ http: httpPort, controlPlane: controlPlanePort }),
+      HARNESS_NO_OPEN: "1",
+      NODE_OPTIONS: nodeOptions,
+      PMH_STATE_DB: join(directory, "control-plane.sqlite"),
+    }),
+  });
+
+  try {
+    const startedAt = Date.now();
+    const health = await requestUntilReady({
+      port: httpPort,
+      path: "/health",
+      host: surfaceHost,
+    }, startedAt + 30_000);
+    assert.ok(Date.now() - startedAt < 30_000);
+    assert.equal(JSON.parse(health.body).safeToLoad, true);
+
+    const refreshDeadline = Date.now() + 30_000;
+    let refreshingHealth;
+    while (Date.now() < refreshDeadline) {
+      const response = await request({
+        port: httpPort,
+        path: "/health",
+        host: surfaceHost,
+      });
+      if (JSON.parse(response.body).catalogRefresh?.status === "REFRESHING") {
+        refreshingHealth = response;
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    assert.ok(refreshingHealth, "startup catalog refresh must still be running");
+    assert.equal(refreshingHealth.status, 200);
+  } finally {
     await stopCapability(launch);
     await Promise.all([assertPortReleased(httpPort), assertPortReleased(controlPlanePort)]);
     await rm(directory, { recursive: true, force: true });

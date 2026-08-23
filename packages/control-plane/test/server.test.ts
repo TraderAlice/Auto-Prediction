@@ -129,7 +129,7 @@ describe("control-plane HTTP surface", () => {
       discoveryStore: store,
       investigationStore: store,
       startupGate,
-      refreshCatalogOnReady: false,
+      refreshCatalogAfterReady: false,
     });
     const stale = await fetch(`${baseUrl}/api/v1/projection`);
     expect(stale.status).toBe(200);
@@ -1375,6 +1375,7 @@ describe("control-plane HTTP surface", () => {
       releaseStartup = resolveStartup;
     });
     let fetchCount = 0;
+    let releaseFetch: (() => void) | undefined;
     const source: CatalogObservationSource = {
       venueId: "gate-test",
       protocolIdentity: "gate-test:v1",
@@ -1385,6 +1386,9 @@ describe("control-plane HTTP surface", () => {
       sources: [source],
       fetcher: async () => {
         fetchCount += 1;
+        await new Promise<void>((resolveFetch) => {
+          releaseFetch = resolveFetch;
+        });
         return new Response("[]", {
           status: 200,
           headers: { "content-type": "application/json" },
@@ -1420,7 +1424,7 @@ describe("control-plane HTTP surface", () => {
       ruleEvidenceClaimDesk,
       ruleEvidenceClaimScheduler,
       aiRuntimeConfigurationDesk,
-      refreshCatalogOnReady: true,
+      refreshCatalogAfterReady: true,
       startupGate,
     });
     servers.push(controlPlane.server);
@@ -1441,9 +1445,26 @@ describe("control-plane HTTP surface", () => {
     releaseStartup?.();
     await controlPlane.ready;
     expect(fetchCount).toBe(1);
-    expect(catalogRefreshScheduler.projection().runCount).toBe(1);
+    expect(catalogRefreshScheduler.projection()).toMatchObject({
+      status: "REFRESHING",
+      runCount: 0,
+    });
     expect(evidenceTick).toHaveBeenCalledOnce();
     expect(ruleEvidenceClaimTick).not.toHaveBeenCalled();
+
+    const address = controlPlane.server.address() as AddressInfo;
+    const health = await fetch(`http://127.0.0.1:${address.port}/health`);
+    expect(health.status).toBe(200);
+    await expect(health.json()).resolves.toMatchObject({
+      schemaVersion: "pmh.studio-surface-health.v1",
+      ok: true,
+      safeToLoad: true,
+      catalogRefresh: { status: "REFRESHING", lastResult: null },
+    });
+
+    releaseFetch?.();
+    await controlPlane.startupCatalogRefresh;
+    expect(catalogRefreshScheduler.projection().runCount).toBe(1);
   });
 
   it("exposes provider-free startup phases before the first bounded projection", async () => {
@@ -1475,6 +1496,19 @@ describe("control-plane HTTP surface", () => {
       valueMovingAuthority: false,
     });
 
+    const surfaceHealth = await fetch(`${baseUrl}/health`);
+    expect(surfaceHealth.status).toBe(200);
+    expect(Number(surfaceHealth.headers.get("content-length") ?? "0")).toBeLessThan(1_000);
+    await expect(surfaceHealth.json()).resolves.toMatchObject({
+      schemaVersion: "pmh.studio-surface-health.v1",
+      ok: true,
+      safeToLoad: true,
+      startup: { status: "STARTING", phase: "STARTUP_GATE", diagnostic: null },
+      liveExecutionEnabled: false,
+      externalWriteAuthority: false,
+      valueMovingAuthority: false,
+    });
+
     const firstProjection = fetch(`${baseUrl}/api/v1/projection`);
     const duplicateProjection = fetch(`${baseUrl}/api/v1/projection`);
     releaseStartup?.();
@@ -1500,12 +1534,12 @@ describe("control-plane HTTP surface", () => {
     await vi.waitFor(async () => {
       expect((await fetch(`${baseUrl}/api/v1/readiness`)).status).toBe(200);
     });
-    vi.spyOn(controlPlane.catalogObservationDesk, "corpus")
+    vi.spyOn(controlPlane.catalogObservationDesk, "projection")
       .mockImplementationOnce(() => {
         throw new Error("fixture projection failed");
       });
 
-    const failedRoute = await fetch(`${baseUrl}/health`);
+    const failedRoute = await fetch(`${baseUrl}/api/v1/catalog/observations`);
     expect(failedRoute.status).toBe(500);
     await expect(failedRoute.json()).resolves.toMatchObject({
       ok: false,
@@ -1683,7 +1717,7 @@ describe("control-plane HTTP surface", () => {
 
     const { baseUrl } = await listenControlPlane({
       catalogObservationDesk: desk,
-      refreshCatalogOnReady: false,
+      refreshCatalogAfterReady: false,
       marketArchaeologistDesk: createMarketArchaeologistDesk({}),
     });
     const studio = (await fetch(`${baseUrl}/api/v1/projection`).then((response) =>
