@@ -2327,14 +2327,27 @@ export type LegacyAiConfigurationImport = Readonly<{
   modelInvocationsCreated: 0;
 }>;
 
+/**
+ * The Codex app-server runtime definition shared by the operator portfolio and
+ * the legacy discovery route, so both resolve to one runtime identity and one
+ * zero-inference account preflight.
+ */
+export const CODEX_APP_SERVER_RUNTIME_VERSION = "codex-app-server-v2:0.147";
+
+export type LegacyDiscoveryTransport = "APP_SERVER" | "RESPONSES";
+
 export function importLegacyAiRuntimeConfiguration(
   configuration: AiRuntimeConfiguration,
+  options: Readonly<{ discoveryTransport: LegacyDiscoveryTransport }>,
 ): LegacyAiConfigurationImport {
-  const runtimeDefinition = buildAgentRuntimeDefinition({
-    kind: "HARNESS_IN_PROCESS",
-    version: "ai-sdk-loop-v1",
-  });
   const codex = configuration.provider === "CODEX";
+  // Every caller states the transport the discovery workers really use; there
+  // is deliberately no default, because the system default (app-server) and
+  // the historical composition (in-process) are different compositions.
+  const appServer = codex && options.discoveryTransport === "APP_SERVER";
+  const runtimeDefinition = buildAgentRuntimeDefinition(appServer
+    ? { kind: "CODEX", version: CODEX_APP_SERVER_RUNTIME_VERSION }
+    : { kind: "HARNESS_IN_PROCESS", version: "ai-sdk-loop-v1" });
   const credentialBinding = buildCredentialBinding(codex
     ? {
         kind: "CODEX_OAUTH",
@@ -2373,8 +2386,13 @@ export function importLegacyAiRuntimeConfiguration(
         }),
         createdAt: configuration.updatedAt,
       });
+  // The durable store keys profiles and routes by (key, revision), so the
+  // app-server binding must carry its own keys: one configuration revision may
+  // legitimately retain both the in-process and the app-server composition.
   const executionProfile = buildExecutionProfile({
-    profileKey: "legacy-discovery-execution",
+    profileKey: appServer
+      ? "legacy-discovery-app-server-execution"
+      : "legacy-discovery-execution",
     revision: configuration.revision,
     runtimeDefinition,
     credentialBinding,
@@ -2390,7 +2408,7 @@ export function importLegacyAiRuntimeConfiguration(
     createdAt: configuration.updatedAt,
   });
   const workloadRoute = buildWorkloadRoute({
-    routeKey: "legacy-discovery-default",
+    routeKey: appServer ? "legacy-discovery-app-server" : "legacy-discovery-default",
     revision: configuration.revision,
     taskKind: "DISCOVERY_SCOUT",
     executionProfileId: executionProfile.executionProfileId,
@@ -2418,8 +2436,9 @@ export class AgentExecutionRegistry {
 
   public importLegacyConfiguration(
     configuration: AiRuntimeConfiguration,
+    options: Readonly<{ discoveryTransport: LegacyDiscoveryTransport }>,
   ): LegacyAiConfigurationImport {
-    const imported = importLegacyAiRuntimeConfiguration(configuration);
+    const imported = importLegacyAiRuntimeConfiguration(configuration, options);
     const batch: AgentExecutionBatch = {
       runtimeDefinitions: [imported.runtimeDefinition],
       credentialBindings: [imported.credentialBinding],

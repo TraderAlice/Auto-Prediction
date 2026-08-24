@@ -48,7 +48,56 @@ afterEach(async () => {
   ));
 });
 
+async function silentAppServer(): Promise<Readonly<{
+  command: string;
+  cwd: string;
+  pidFile: string;
+}>> {
+  const cwd = await mkdtemp(join(tmpdir(), "pmh-codex-app-server-silent-"));
+  directories.push(cwd);
+  const command = join(cwd, "silent-codex");
+  const pidFile = join(cwd, "child.pid");
+  await writeFile(command, `#!/usr/bin/env node
+import { writeFileSync } from "node:fs";
+writeFileSync(${JSON.stringify(pidFile)}, String(process.pid));
+// Never answer the initialize handshake; just stay alive.
+process.stdin.on("data", () => {});
+setInterval(() => {}, 1000);
+`, "utf8");
+  await chmod(command, 0o755);
+  return Object.freeze({ command, cwd, pidFile });
+}
+
+async function processGone(pid: number, waitMs: number): Promise<boolean> {
+  const deadline = Date.now() + waitMs;
+  while (Date.now() < deadline) {
+    try {
+      process.kill(pid, 0);
+    } catch {
+      return true;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  return false;
+}
+
 describe("Codex app-server JSONL process transport", () => {
+  it("tears down the spawned child when the initialize handshake fails", async () => {
+    const fixture = await silentAppServer();
+    const factory = createCodexAppServerConnectionFactory({
+      command: fixture.command,
+      cwd: fixture.cwd,
+      requestTimeoutMs: 1_000,
+    });
+
+    await expect(factory()).rejects.toThrow(/timed out/iu);
+
+    const { readFile } = await import("node:fs/promises");
+    const pid = Number(await readFile(fixture.pidFile, "utf8"));
+    expect(Number.isSafeInteger(pid) && pid > 0).toBe(true);
+    expect(await processGone(pid, 3_000)).toBe(true);
+  });
+
   it("correlates out-of-order responses and carries notifications and server requests", async () => {
     const fixture = await fakeAppServer();
     const connection = await createCodexAppServerConnectionFactory({

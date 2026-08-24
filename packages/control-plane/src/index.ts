@@ -143,6 +143,7 @@ export * from "./agent-in-process-runtime.js";
 export * from "./rule-evidence-agent-migration.js";
 export * from "./rule-evidence-agent-tool-host.js";
 export * from "./codex-model.js";
+export * from "./codex-app-server-model.js";
 export * from "./codex-oauth.js";
 export * from "./semantic-price-inequality.js";
 export * from "./semantic-constraint-smoke.js";

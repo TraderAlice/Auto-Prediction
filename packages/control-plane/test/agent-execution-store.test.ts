@@ -113,7 +113,7 @@ describe("SQLite Agent execution substrate", () => {
     const path = await databasePath();
     const first = new SqliteOperationalStore(path);
     const registry = new AgentExecutionRegistry(first);
-    registry.importLegacyConfiguration(configuration());
+    registry.importLegacyConfiguration(configuration(), { discoveryTransport: "RESPONSES" });
     expect(registry.projection()).toMatchObject({
       runtimeDefinitionCount: 1,
       credentialBindingCount: 1,
@@ -135,7 +135,7 @@ describe("SQLite Agent execution substrate", () => {
     const replay = new AgentExecutionRegistry(reopened);
     expect(replay.projection()).toMatchObject(registry.projection());
 
-    replay.importLegacyConfiguration(configuration(21, "max"));
+    replay.importLegacyConfiguration(configuration(21, "max"), { discoveryTransport: "RESPONSES" });
     expect(replay.projection()).toMatchObject({
       runtimeDefinitionCount: 1,
       credentialBindingCount: 1,
@@ -152,7 +152,7 @@ describe("SQLite Agent execution substrate", () => {
 
   it("persists an explicitly authorized task/run/invocation/effect/result lineage", async () => {
     const store = new SqliteOperationalStore(await databasePath());
-    const imported = importLegacyAiRuntimeConfiguration(configuration());
+    const imported = importLegacyAiRuntimeConfiguration(configuration(), { discoveryTransport: "RESPONSES" });
     store.saveAgentExecutionBatch({
       runtimeDefinitions: [imported.runtimeDefinition],
       credentialBindings: [imported.credentialBinding],
@@ -331,7 +331,7 @@ describe("SQLite Agent execution substrate", () => {
   it("persists execution capability observations across restart without secret material", async () => {
     const path = await databasePath();
     const first = new SqliteOperationalStore(path);
-    const imported = importLegacyAiRuntimeConfiguration(configuration());
+    const imported = importLegacyAiRuntimeConfiguration(configuration(), { discoveryTransport: "RESPONSES" });
     first.saveAgentExecutionBatch({
       runtimeDefinitions: [imported.runtimeDefinition],
       credentialBindings: [imported.credentialBinding],
@@ -358,7 +358,7 @@ describe("SQLite Agent execution substrate", () => {
   it("replays bounded v2 invocation diagnostics while preserving historical v1 compatibility", async () => {
     const path = await databasePath();
     const store = new SqliteOperationalStore(path);
-    const imported = importLegacyAiRuntimeConfiguration(configuration());
+    const imported = importLegacyAiRuntimeConfiguration(configuration(), { discoveryTransport: "RESPONSES" });
     const work = task(85);
     const run = buildAgentRun({
       task: work,

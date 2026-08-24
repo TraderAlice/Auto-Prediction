@@ -10,6 +10,7 @@ import {
   buildAgentTask,
   buildAgentToolEffect,
   buildCredentialBinding,
+  CODEX_APP_SERVER_RUNTIME_VERSION,
   buildExecutionProfile,
   buildModelProfile,
   buildPausedAgentCampaign,
@@ -214,6 +215,53 @@ describe("Agent execution substrate", () => {
     expect({ fullWrites, additiveWrites }).toEqual({ fullWrites: 1, additiveWrites: 0 });
   });
 
+  it("binds the Codex app-server runtime to the discovery route when that transport is selected", () => {
+    const configuration: AiRuntimeConfiguration = {
+      schemaVersion: "pmh.ai-runtime-configuration.v2",
+      revision: 21,
+      provider: "CODEX",
+      codexModel: "gpt-5.6-terra",
+      codexReasoningEffort: "medium",
+      deepseekAutomationEnabled: false,
+      updatedAt: NOW,
+    };
+    const imported = importLegacyAiRuntimeConfiguration(configuration, {
+      discoveryTransport: "APP_SERVER",
+    });
+    const legacy = importLegacyAiRuntimeConfiguration(configuration, { discoveryTransport: "RESPONSES" });
+
+    expect(imported.runtimeDefinition).toMatchObject({
+      kind: "CODEX",
+      version: CODEX_APP_SERVER_RUNTIME_VERSION,
+    });
+    expect(imported.runtimeDefinition.runtimeDefinitionId).toBe(
+      buildAgentRuntimeDefinition({
+        kind: "CODEX",
+        version: CODEX_APP_SERVER_RUNTIME_VERSION,
+      }).runtimeDefinitionId,
+    );
+    expect(imported.credentialBinding.kind).toBe("CODEX_OAUTH");
+    expect(imported.modelProfile.modelProfileId).toBe(legacy.modelProfile.modelProfileId);
+    expect(imported.executionProfile.executionProfileId).not.toBe(
+      legacy.executionProfile.executionProfileId,
+    );
+    // The durable store is unique on (key, revision): both compositions must be
+    // retainable side by side for the same configuration revision.
+    expect(imported.executionProfile.profileKey).not.toBe(legacy.executionProfile.profileKey);
+    expect(imported.workloadRoute.routeKey).not.toBe(legacy.workloadRoute.routeKey);
+    expect(imported.workloadRoute).toMatchObject({
+      taskKind: "DISCOVERY_SCOUT",
+      revision: 21,
+      automaticDispatch: false,
+      executionProfileId: imported.executionProfile.executionProfileId,
+    });
+    // A DeepSeek configuration never binds Codex app-server, whatever the transport.
+    expect(importLegacyAiRuntimeConfiguration(
+      { ...configuration, provider: "DEEPSEEK" },
+      { discoveryTransport: "APP_SERVER" },
+    ).runtimeDefinition.kind).toBe("HARNESS_IN_PROCESS");
+  });
+
   it("imports the flat Codex setting as an in-process model route with zero dispatch", () => {
     const configuration: AiRuntimeConfiguration = {
       schemaVersion: "pmh.ai-runtime-configuration.v2",
@@ -224,7 +272,7 @@ describe("Agent execution substrate", () => {
       deepseekAutomationEnabled: false,
       updatedAt: NOW,
     };
-    const imported = importLegacyAiRuntimeConfiguration(configuration);
+    const imported = importLegacyAiRuntimeConfiguration(configuration, { discoveryTransport: "RESPONSES" });
 
     expect(imported.runtimeDefinition.kind).toBe("HARNESS_IN_PROCESS");
     expect(imported.credentialBinding.kind).toBe("CODEX_OAUTH");
@@ -541,8 +589,8 @@ describe("Agent execution substrate", () => {
       deepseekAutomationEnabled: false,
       updatedAt: NOW,
     };
-    registry.importLegacyConfiguration(configuration);
-    registry.importLegacyConfiguration(configuration);
+    registry.importLegacyConfiguration(configuration, { discoveryTransport: "RESPONSES" });
+    registry.importLegacyConfiguration(configuration, { discoveryTransport: "RESPONSES" });
     expect(registry.projection()).toMatchObject({
       runtimeDefinitionCount: 1,
       credentialBindingCount: 1,

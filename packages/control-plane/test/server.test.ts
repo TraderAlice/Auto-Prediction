@@ -2673,7 +2673,9 @@ describe("control-plane HTTP surface", () => {
     expect(JSON.parse(discoveryCapabilityText)).toMatchObject({
       schemaVersion: "pmh.discovery-execution-capability.v1",
       workloadRoute: { taskKind: "DISCOVERY_SCOUT" },
-      runtime: { kind: "HARNESS_IN_PROCESS" },
+      // The default Codex discovery transport is the app-server, so the legacy
+      // scout route binds the CODEX runtime and its zero-inference account probe.
+      runtime: { kind: "CODEX" },
       model: { model: "gpt-5.6-terra" },
       capability: {
         dispatchEligibility: "BLOCKED",

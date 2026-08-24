@@ -4,6 +4,7 @@ import {
   buildExecutionProfile,
   buildModelProfile,
   buildWorkloadRoute,
+  CODEX_APP_SERVER_RUNTIME_VERSION,
   type AgentExecutionBatch,
 } from "./agent-execution-substrate.js";
 import type { AiRuntimeConfiguration } from "./ai-runtime-configuration.js";
@@ -24,7 +25,7 @@ export function buildDefaultAgentRuntimePortfolio(
   const pi = buildAgentRuntimeDefinition({ kind: "PI", version: "pi-cli-v1" });
   const codex = buildAgentRuntimeDefinition({
     kind: "CODEX",
-    version: "codex-app-server-v2:0.147",
+    version: CODEX_APP_SERVER_RUNTIME_VERSION,
   });
   const inProcess = buildAgentRuntimeDefinition({
     kind: "HARNESS_IN_PROCESS",

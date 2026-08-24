@@ -12,8 +12,10 @@ import type { AiUsageRecorder } from "./ai-usage-ledger.js";
 import {
   createCodexDiscoveryRuntime,
   type CodexDiscoveryRuntime,
+  type CodexDiscoveryTransport,
   type CodexFetchLike,
 } from "./codex-model.js";
+import type { CodexAppServerConnectionFactory } from "./codex-app-server-transport.js";
 import type { CodexOAuthCredentialProvider } from "./codex-oauth.js";
 import type { AiRuntimeConfiguration } from "./ai-runtime-configuration.js";
 
@@ -29,6 +31,8 @@ export function createDiscoveryModelRuntime(
     openAiFetcher?: OpenAiFetchLike;
     codexFetcher?: CodexFetchLike;
     codexCredentialProvider?: CodexOAuthCredentialProvider;
+    codexDiscoveryTransport?: CodexDiscoveryTransport;
+    codexAppServerConnectionFactory?: CodexAppServerConnectionFactory;
     runtimeConfiguration?: AiRuntimeConfiguration;
     usageRecorder?: AiUsageRecorder;
   }> = {},
@@ -72,6 +76,12 @@ export function createDiscoveryModelRuntime(
       ...(options.codexCredentialProvider === undefined
         ? {}
         : { credentialProvider: options.codexCredentialProvider }),
+      ...(options.codexDiscoveryTransport === undefined
+        ? {}
+        : { transport: options.codexDiscoveryTransport }),
+      ...(options.codexAppServerConnectionFactory === undefined
+        ? {}
+        : { appServerConnectionFactory: options.codexAppServerConnectionFactory }),
       ...(options.usageRecorder === undefined
         ? {}
         : { usageRecorder: options.usageRecorder }),

@@ -27,6 +27,11 @@ import {
   CodexAuthCacheCredentialProvider,
   type CodexOAuthCredentialProvider,
 } from "./codex-oauth.js";
+import { CodexAppServerAgentPort } from "./codex-app-server-model.js";
+import {
+  createCodexAppServerConnectionFactory,
+  type CodexAppServerConnectionFactory,
+} from "./codex-app-server-transport.js";
 
 const DEFAULT_MAX_OUTPUT_TOKENS = 800;
 const DEFAULT_TIMEOUT_MS = 300_000;
@@ -34,6 +39,30 @@ const MAX_TIMEOUT_MS = 300_000;
 const CODEX_BASE_URL = "https://chatgpt.com/backend-api/codex";
 
 export type CodexFetchLike = NonNullable<OpenAIProviderSettings["fetch"]>;
+
+/**
+ * How the discovery loop reaches the Codex model with the ChatGPT OAuth cache.
+ *
+ * - `APP_SERVER` (default) drives a local `codex app-server --stdio` process,
+ *   the sanctioned first-party client that the ChatGPT subscription accepts.
+ * - `RESPONSES` calls `chatgpt.com/backend-api/codex/responses` directly with
+ *   a third-party originator; the service currently rejects that route for
+ *   subscription OAuth (HTTP 403), so it remains only as an explicit opt-in.
+ */
+export type CodexDiscoveryTransport = "APP_SERVER" | "RESPONSES";
+
+export const DEFAULT_CODEX_DISCOVERY_TRANSPORT: CodexDiscoveryTransport = "APP_SERVER";
+
+export function resolveCodexDiscoveryTransport(
+  environment: Readonly<Record<string, string | undefined>>,
+  explicit?: CodexDiscoveryTransport,
+): CodexDiscoveryTransport {
+  if (explicit !== undefined) return explicit;
+  const raw = environment.PMH_CODEX_DISCOVERY_TRANSPORT?.trim().toUpperCase().replaceAll("-", "_");
+  if (raw === undefined || raw === "") return DEFAULT_CODEX_DISCOVERY_TRANSPORT;
+  if (raw === "APP_SERVER" || raw === "RESPONSES") return raw;
+  throw new Error("PMH_CODEX_DISCOVERY_TRANSPORT must be app-server or responses");
+}
 
 function boundedInteger(
   value: string | undefined,
@@ -140,8 +169,13 @@ export function createCodexDiscoveryRuntime(
     credentialProvider?: CodexOAuthCredentialProvider;
     fetcher?: CodexFetchLike;
     usageRecorder?: AiUsageRecorder;
+    transport?: CodexDiscoveryTransport;
+    appServerConnectionFactory?: CodexAppServerConnectionFactory;
+    appServerCommand?: string;
+    appServerCwd?: string;
   }>,
 ): CodexDiscoveryRuntime {
+  const transport = resolveCodexDiscoveryTransport(environment, options.transport);
   const maxOutputTokens = boundedInteger(
     environment.PMH_DISCOVERY_MAX_OUTPUT_TOKENS,
     DEFAULT_MAX_OUTPUT_TOKENS,
@@ -176,7 +210,7 @@ export function createCodexDiscoveryRuntime(
   const workerRoles = configuredModelScoutRoles(environment.PMH_DISCOVERY_FANOUT);
   const projection: ModelProviderProjection = Object.freeze({
     provider: "CODEX_RESPONSES",
-    transport: "VERCEL_AI_SDK",
+    transport: transport === "APP_SERVER" ? "CODEX_APP_SERVER" : "VERCEL_AI_SDK",
     configured,
     credentialEnv: "CODEX_OAUTH",
     model: options.model,
@@ -191,19 +225,37 @@ export function createCodexDiscoveryRuntime(
     responseStorage: false,
     authority: "PROPOSE_ONLY",
   });
-  const agentPort = configured
-    ? new CodexAiSdkAgentPort(
-        options.model,
-        options.reasoningEffort,
-        credentialProvider,
-        maxOutputTokens,
-        timeoutMs,
-        maxSteps,
-        maxToolCalls,
-        options.fetcher,
-        options.usageRecorder,
-      )
-    : null;
+  const agentPort: DiscoveryAgentPort | null = !configured
+    ? null
+    : transport === "APP_SERVER"
+      ? new CodexAppServerAgentPort(
+          options.model,
+          options.reasoningEffort,
+          options.appServerConnectionFactory ??
+            createCodexAppServerConnectionFactory({
+              cwd: options.appServerCwd ?? process.cwd(),
+              environment,
+              requestTimeoutMs: Math.min(timeoutMs, 30_000),
+              ...(options.appServerCommand === undefined
+                ? {}
+                : { command: options.appServerCommand }),
+            }),
+          timeoutMs,
+          maxSteps,
+          maxToolCalls,
+          options.usageRecorder,
+        )
+      : new CodexAiSdkAgentPort(
+          options.model,
+          options.reasoningEffort,
+          credentialProvider,
+          maxOutputTokens,
+          timeoutMs,
+          maxSteps,
+          maxToolCalls,
+          options.fetcher,
+          options.usageRecorder,
+        );
   const workers = Object.freeze(agentPort === null ? [] : workerRoles.map((role) =>
     new AgenticModelDiscoveryWorker(
       modelScoutWorkerId(role, workerRoles.length),

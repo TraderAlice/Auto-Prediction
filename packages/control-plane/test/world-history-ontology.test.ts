@@ -294,7 +294,7 @@ describe("world-history settlement ontology", () => {
       codexReasoningEffort: "high",
       deepseekAutomationEnabled: false,
       updatedAt: observedAt,
-    });
+    }, { discoveryTransport: "RESPONSES" });
     store.saveAgentExecutionBatch({
       runtimeDefinitions: [imported.runtimeDefinition],
       credentialBindings: [imported.credentialBinding],

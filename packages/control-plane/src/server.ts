@@ -1708,12 +1708,6 @@ export function createControlPlane(options?: {
     readonly ResearchDecisionOutcomeObservation[] = Object.freeze([]);
   let relationDiscoveryTaskRevisions: readonly RelationDiscoveryTaskRevision[] =
     relationDiscoveryStore?.loadRelationDiscoveryTaskRevisions(512) ?? [];
-  agentExecutionRegistry.importLegacyConfiguration(
-    aiRuntimeConfigurationDesk.current(),
-  );
-  agentExecutionRegistry.saveBatch(buildDefaultAgentRuntimePortfolio(
-    aiRuntimeConfigurationDesk.current(),
-  ));
   const modelRuntimeFactory = options?.modelRuntimeFactory ??
     ((configuration: AiRuntimeConfiguration) => createDiscoveryModelRuntime(
       process.env,
@@ -1721,6 +1715,21 @@ export function createControlPlane(options?: {
     ));
   let modelRuntime = options?.modelRuntime ??
     modelRuntimeFactory(aiRuntimeConfigurationDesk.current());
+  // The legacy DISCOVERY_SCOUT route must bind the runtime the discovery
+  // workers really use, so the transport is read from the live model runtime
+  // (the one source of truth) rather than resolved again from the environment.
+  const legacyDiscoveryImportOptions = (runtime: DiscoveryModelRuntime) => Object.freeze({
+    discoveryTransport: runtime.projection.transport === "CODEX_APP_SERVER"
+      ? "APP_SERVER" as const
+      : "RESPONSES" as const,
+  });
+  agentExecutionRegistry.importLegacyConfiguration(
+    aiRuntimeConfigurationDesk.current(),
+    legacyDiscoveryImportOptions(modelRuntime),
+  );
+  agentExecutionRegistry.saveBatch(buildDefaultAgentRuntimePortfolio(
+    aiRuntimeConfigurationDesk.current(),
+  ));
   const semanticReviewCodexCredential = new CodexAuthCacheCredentialProvider(process.env);
   const semanticReviewCodexCredentialProvider = Object.freeze({
     configured: () =>
@@ -1737,11 +1746,37 @@ export function createControlPlane(options?: {
     agentExecutionRegistry,
     agentCredentialBroker,
   );
+  // Every retained DISCOVERY_SCOUT route is immutable, so one configuration
+  // revision can hold both a legacy in-process route and a Codex app-server
+  // route. Among the newest revision, prefer the route whose runtime matches
+  // the transport the live discovery workers use; fall back to the newest.
+  const selectDiscoveryScoutRoute = (
+    snapshot: ReturnType<typeof agentExecutionRegistry.snapshot>,
+  ) => {
+    const routes = [...snapshot.workloadRoutes]
+      .filter((item) => item.taskKind === "DISCOVERY_SCOUT")
+      .sort((left, right) => right.revision - left.revision);
+    const newest = routes[0];
+    if (newest === undefined) return undefined;
+    const preferredKind = modelRuntime.projection.transport === "CODEX_APP_SERVER"
+      ? "CODEX"
+      : "HARNESS_IN_PROCESS";
+    const runtimeKindOf = (executionProfileId: string) => {
+      const profile = snapshot.executionProfiles.find((item) =>
+        item.executionProfileId === executionProfileId
+      );
+      return snapshot.runtimeDefinitions.find((item) =>
+        item.runtimeDefinitionId === profile?.runtimeDefinitionId
+      )?.kind;
+    };
+    return routes.find((item) =>
+      item.revision === newest.revision &&
+      runtimeKindOf(item.executionProfileId) === preferredKind
+    ) ?? newest;
+  };
   const discoveryExecutionProfile = () => {
     const snapshot = agentExecutionRegistry.snapshot();
-    const route = [...snapshot.workloadRoutes]
-      .filter((item) => item.taskKind === "DISCOVERY_SCOUT")
-      .sort((left, right) => right.revision - left.revision)[0];
+    const route = selectDiscoveryScoutRoute(snapshot);
     if (route === undefined) {
       throw new Error("Discovery execution profile is blocked: workload route is unavailable");
     }
@@ -5769,9 +5804,7 @@ export function createControlPlane(options?: {
   };
   const discoveryExecutionCapability = async () => {
     const snapshot = agentExecutionRegistry.snapshot();
-    const route = [...snapshot.workloadRoutes]
-      .filter((item) => item.taskKind === "DISCOVERY_SCOUT")
-      .sort((left, right) => right.revision - left.revision)[0];
+    const route = selectDiscoveryScoutRoute(snapshot);
     if (route === undefined) {
       throw new Error("Discovery execution workload route is unavailable");
     }
@@ -7216,8 +7249,8 @@ export function createControlPlane(options?: {
       try {
         const update = parseAiRuntimeConfigurationUpdate(await readJson(request));
         const configuration = aiRuntimeConfigurationDesk.update(update);
-        agentExecutionRegistry.importLegacyConfiguration(configuration);
-        agentExecutionRegistry.saveBatch(buildDefaultAgentRuntimePortfolio(configuration));
+        // Rebuild the runtime first so the legacy route binds the transport the
+        // new workers use.
         if (options?.modelRuntime === undefined) {
           modelRuntime = modelRuntimeFactory(configuration);
           if (options?.discoveryPool === undefined) {
@@ -7227,6 +7260,11 @@ export function createControlPlane(options?: {
             ]);
           }
         }
+        agentExecutionRegistry.importLegacyConfiguration(
+          configuration,
+          legacyDiscoveryImportOptions(modelRuntime),
+        );
+        agentExecutionRegistry.saveBatch(buildDefaultAgentRuntimePortfolio(configuration));
         await broadcastProjection();
         writeJson(response, 200, {
           ok: true,

@@ -16,6 +16,7 @@ describe("Vercel AI SDK Codex OAuth discovery agent", () => {
       model: "gpt-5.6-luna",
       reasoningEffort: "medium",
       credentialProvider: codexCredentialForTest(secret, "account-test-only"),
+      transport: "RESPONSES",
     });
     expect(runtime.projection).toEqual({
       provider: "CODEX_RESPONSES",
@@ -46,6 +47,7 @@ describe("Vercel AI SDK Codex OAuth discovery agent", () => {
         model: "gpt-5.6-terra",
         reasoningEffort: "high",
         credentialProvider: codexCredentialForTest(secret, "account-test-only"),
+        transport: "RESPONSES",
         async fetcher(input, init) {
           expect(String(input)).toBe("https://chatgpt.com/backend-api/codex/responses");
           const headers = new Headers(init?.headers);
