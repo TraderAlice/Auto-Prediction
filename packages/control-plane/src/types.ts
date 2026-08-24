@@ -344,7 +344,7 @@ export type ModelProviderProjection = Readonly<{
     | "OPENAI_RESPONSES"
     | "CODEX_RESPONSES"
     | "DEEPSEEK_CHAT_COMPLETIONS";
-  transport: "VERCEL_AI_SDK";
+  transport: "VERCEL_AI_SDK" | "CODEX_APP_SERVER";
   configured: boolean;
   credentialEnv: "OPENAI_API_KEY" | "DEEPSEEK_API_KEY" | "CODEX_OAUTH";
   model: string;

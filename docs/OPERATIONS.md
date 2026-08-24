@@ -100,7 +100,8 @@ environment only seeds a new database.
 Default configuration:
 
 - provider: `CODEX`
-- runtime: Codex app-server for the selected long-loop workloads
+- runtime: Codex app-server for the selected long-loop workloads and for
+  heuristic discovery (`DISCOVERY_SCOUT`)
 - credential: local Codex OAuth cache
 - model: `gpt-5.6-terra`
 - reasoning effort: `high`
@@ -111,12 +112,24 @@ or Terra plus a model-supported reasoning effort. Runtime, credential binding,
 model profile, and workload route are represented separately; the model's
 reasoning effort remains part of that model profile.
 
+Heuristic discovery reaches Codex through `PMH_CODEX_DISCOVERY_TRANSPORT`.
+`app-server` (default) drives a local `codex app-server --stdio` process, the
+first-party client that the ChatGPT subscription accepts, and the
+`DISCOVERY_SCOUT` route then shares the Codex runtime's zero-inference account
+preflight. `responses` calls `chatgpt.com/backend-api/codex/responses` directly
+with a third-party originator; the service currently rejects that route for
+subscription OAuth (HTTP 403), so it stays an explicit opt-in for API-style
+credentials. The setting is process-level, not part of the durable Studio
+configuration, and Readiness reports the active transport as
+`CODEX_APP_SERVER` or `VERCEL_AI_SDK`.
+
 To seed a new store explicitly:
 
 ```dotenv
 PMH_DISCOVERY_PROVIDER=codex
 PMH_CODEX_MODEL=gpt-5.6-terra
 PMH_CODEX_REASONING_EFFORT=high
+PMH_CODEX_DISCOVERY_TRANSPORT=app-server
 PMH_DEEPSEEK_AUTOMATION_ENABLED=0
 ```
 

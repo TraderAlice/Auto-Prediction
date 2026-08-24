@@ -984,8 +984,18 @@ one hook, expose the same preflight control, and disable every scan launch while
 blocked; Agent Operations retains the full execution console rather than making
 ordinary scan pages download it. API-key profiles also require a fresh
 configuration-only preflight, so configured-but-missing secrets cannot bypass
-the synchronous dispatcher. An app-server-backed Codex runtime is the next
-usable-route candidate. Other legacy AI workloads remain later adoption work.
+the synchronous dispatcher. The app-server-backed Codex runtime is now the
+default `DISCOVERY_SCOUT` transport (2026-08-24): a fresh operator desk showed
+the in-process Responses route rejected by the `CODEX_USAGE` probe (HTTP 403)
+while every app-server route was `USABLE`, so `CodexAppServerAgentPort` drives
+the same `DiscoveryAgentSession` tool loop through `codex app-server` dynamic
+tools, the legacy scout route binds the shared Codex runtime definition and
+its account preflight, and the direct Responses transport remains an explicit
+`PMH_CODEX_DISCOVERY_TRANSPORT=responses` opt-in. The same desk also showed
+Terra/high mechanism research stalling silently past the 300 s run budget
+twice (invocation 3, zero events) while Terra/medium completed in 2 m 42 s, so
+effort is an operator lever, not a correctness guarantee. Other legacy AI
+workloads remain later adoption work.
 Cold-start use then exposed a separate operability failure: the listener was
 reachable while Studio waited 8–25 seconds with a generic Connecting screen.
 The control plane now exposes a provider-free `/api/v1/readiness` envelope with

@@ -22,7 +22,7 @@ describe("ontology Agent intent cost attribution", () => {
       codexReasoningEffort: "high",
       deepseekAutomationEnabled: false,
       updatedAt: NOW,
-    });
+    }, { discoveryTransport: "RESPONSES" });
     const task = buildAgentTask({
       kind: "ONTOLOGY_NORMALIZATION",
       protocol: "MARKET_ONTOLOGY_NORMALIZATION_TASK_V3",

@@ -76,7 +76,7 @@ function fixture(taskCount: number, budget?: Partial<{
   const time = clock();
   const store = new SqliteOperationalStore(":memory:");
   const registry = new AgentExecutionRegistry(store);
-  const imported = importLegacyAiRuntimeConfiguration(configuration());
+  const imported = importLegacyAiRuntimeConfiguration(configuration(), { discoveryTransport: "RESPONSES" });
   const tasks = Array.from({ length: taskCount }, (_, index) => task(index + 1));
   const paused = buildPausedAgentCampaign({
     campaignKey: "dispatcher-qualification",

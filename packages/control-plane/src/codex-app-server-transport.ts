@@ -323,18 +323,24 @@ export function createCodexAppServerConnectionFactory(input: Readonly<{
       environment,
       maxOutputBytes,
     });
-    await connection.request("initialize", {
-      clientInfo: {
-        name: "prediction-market-harness",
-        title: "Prediction Market Harness",
-        version: "0.1.2",
-      },
-      capabilities: {
-        experimentalApi: true,
-        requestAttestation: false,
-      },
-    }, requestTimeoutMs);
-    connection.notify("initialized");
+    try {
+      await connection.request("initialize", {
+        clientInfo: {
+          name: "prediction-market-harness",
+          title: "Prediction Market Harness",
+          version: "0.1.2",
+        },
+        capabilities: {
+          experimentalApi: true,
+          requestAttestation: false,
+        },
+      }, requestTimeoutMs);
+      connection.notify("initialized");
+    } catch (error) {
+      // The child is already spawned; a failed handshake must not orphan it.
+      await connection.close().catch(() => undefined);
+      throw error;
+    }
     return connection;
   };
 }

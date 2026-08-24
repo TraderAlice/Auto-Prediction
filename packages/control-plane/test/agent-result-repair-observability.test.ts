@@ -24,7 +24,7 @@ function fixture() {
     codexReasoningEffort: "high",
     deepseekAutomationEnabled: false,
     updatedAt: START,
-  });
+  }, { discoveryTransport: "RESPONSES" });
   const task = buildAgentTask({
     kind: "RULE_EVIDENCE_CLAIM",
     protocol: "RULE_EVIDENCE_TASK_V1",
