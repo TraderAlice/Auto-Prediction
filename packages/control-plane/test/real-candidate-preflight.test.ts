@@ -15,11 +15,30 @@ const checkoutPayload = "polymarket-global/2026-07-31/polymarket-trump-out-2027.
 
 type Autocrlf = "true" | "false";
 
-async function runGit(cwd: string, args: readonly string[]): Promise<void> {
-  await execFileAsync("git", ["-C", cwd, ...args], { windowsHide: true });
+function gitEnvironment(emptyConfigPath: string): NodeJS.ProcessEnv {
+  return {
+    ...Object.fromEntries(
+      Object.entries(process.env).filter(([key]) => !/^GIT_/i.test(key)),
+    ),
+    GIT_CONFIG_GLOBAL: emptyConfigPath,
+    GIT_CONFIG_NOSYSTEM: "1",
+    GIT_ATTR_NOSYSTEM: "1",
+  };
+}
+
+async function runGit(
+  environment: NodeJS.ProcessEnv,
+  cwd: string,
+  args: readonly string[],
+): Promise<void> {
+  await execFileAsync("git", ["-C", cwd, ...args], {
+    windowsHide: true,
+    env: environment,
+  });
 }
 
 async function cloneRepository(
+  environment: NodeJS.ProcessEnv,
   source: string,
   destination: string,
   autocrlf: Autocrlf,
@@ -35,7 +54,7 @@ async function cloneRepository(
       source,
       destination,
     ],
-    { windowsHide: true },
+    { windowsHide: true, env: environment },
   );
 }
 
@@ -149,6 +168,9 @@ describe("real candidate preflight desk", () => {
     const tempRoot = await mkdtemp(join(tmpdir(), "pmh-fixture-checkout-"));
     try {
       // Build the source commit in a temp repo so this test never changes the caller's Git state.
+      const emptyConfigPath = resolve(tempRoot, "empty.gitconfig");
+      await writeFile(emptyConfigPath, "");
+      const git = gitEnvironment(emptyConfigPath);
       const sourceWithAttributes = resolve(tempRoot, "source-with-attributes");
       await mkdir(sourceWithAttributes, { recursive: true });
       await cp(fixtureRoot, resolve(sourceWithAttributes, "projects/fixtures"), {
@@ -158,16 +180,16 @@ describe("real candidate preflight desk", () => {
         resolve(sourceWithAttributes, ".gitattributes"),
         await readFile(resolve(repositoryRoot, ".gitattributes")),
       );
-      await runGit(sourceWithAttributes, ["init", "--quiet"]);
-      await runGit(sourceWithAttributes, ["config", "core.autocrlf", "false"]);
-      await runGit(sourceWithAttributes, ["config", "user.name", "fixture test"]);
-      await runGit(sourceWithAttributes, [
+      await runGit(git, sourceWithAttributes, ["init", "--quiet"]);
+      await runGit(git, sourceWithAttributes, ["config", "core.autocrlf", "false"]);
+      await runGit(git, sourceWithAttributes, ["config", "user.name", "fixture test"]);
+      await runGit(git, sourceWithAttributes, [
         "config",
         "user.email",
         "fixture-test@example.invalid",
       ]);
-      await runGit(sourceWithAttributes, ["add", "--all"]);
-      await runGit(sourceWithAttributes, [
+      await runGit(git, sourceWithAttributes, ["add", "--all"]);
+      await runGit(git, sourceWithAttributes, [
         "commit",
         "--quiet",
         "-m",
@@ -177,6 +199,7 @@ describe("real candidate preflight desk", () => {
       for (const autocrlf of ["true", "false"] as const) {
         const checkout = resolve(tempRoot, "checkout-" + autocrlf);
         await cloneRepository(
+          git,
           pathToFileURL(sourceWithAttributes).href,
           checkout,
           autocrlf,
@@ -194,18 +217,19 @@ describe("real candidate preflight desk", () => {
 
       const sourceWithoutAttributes = resolve(tempRoot, "source-without-attributes");
       await cloneRepository(
+        git,
         pathToFileURL(sourceWithAttributes).href,
         sourceWithoutAttributes,
         "false",
       );
-      await runGit(sourceWithoutAttributes, ["config", "user.name", "fixture test"]);
-      await runGit(sourceWithoutAttributes, [
+      await runGit(git, sourceWithoutAttributes, ["config", "user.name", "fixture test"]);
+      await runGit(git, sourceWithoutAttributes, [
         "config",
         "user.email",
         "fixture-test@example.invalid",
       ]);
-      await runGit(sourceWithoutAttributes, ["rm", "--quiet", "--", ".gitattributes"]);
-      await runGit(sourceWithoutAttributes, [
+      await runGit(git, sourceWithoutAttributes, ["rm", "--quiet", "--", ".gitattributes"]);
+      await runGit(git, sourceWithoutAttributes, [
         "commit",
         "--quiet",
         "-m",
@@ -214,6 +238,7 @@ describe("real candidate preflight desk", () => {
 
       const brokenCheckout = resolve(tempRoot, "checkout-without-attributes");
       await cloneRepository(
+        git,
         pathToFileURL(sourceWithoutAttributes).href,
         brokenCheckout,
         "true",
