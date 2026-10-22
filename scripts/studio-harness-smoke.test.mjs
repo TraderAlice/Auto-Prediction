@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { access, chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import http from "node:http";
 import { connect, createServer } from "node:net";
@@ -93,11 +93,14 @@ function cleanEnvironment(overrides = {}) {
 async function startCapability({ environment, extraArguments = [] }) {
   const [executable, ...arguments_] = await manifestCommand();
   const output = [];
+  // Windows runs pnpm through its .CMD shim, which spawn cannot start without a shell.
   const child = spawn(executable, [...arguments_, ...extraArguments], {
     cwd: repositoryRoot,
-    env: environment,
+    // NO_COLOR keeps Vite's URL line plain, so the output assertions can match it.
+    env: { ...environment, NO_COLOR: "1" },
     stdio: ["ignore", "pipe", "pipe"],
     detached: process.platform !== "win32",
+    shell: process.platform === "win32",
   });
   child.stdout.on("data", (chunk) => output.push(chunk.toString()));
   child.stderr.on("data", (chunk) => output.push(chunk.toString()));
@@ -225,9 +228,15 @@ async function waitForExit(launch, timeout = 10_000) {
   }
 }
 
+function killWindowsTree(pid) {
+  // With a shell in between, child.kill would stop only cmd.exe and leave pnpm and node running.
+  if (pid !== undefined) spawnSync("taskkill", ["/pid", String(pid), "/T", "/F"], { stdio: "ignore" });
+}
+
 async function stopCapability(launch) {
   if (launch.child.exitCode === null && launch.child.signalCode === null) {
-    launch.child.kill("SIGTERM");
+    if (process.platform === "win32") killWindowsTree(launch.child.pid);
+    else launch.child.kill("SIGTERM");
   }
   try {
     await waitForExit(launch);
@@ -338,11 +347,18 @@ test("managed manifest command serves the complete same-origin surface on exact 
     const webSocketToken = asset.body.match(/const wsToken = "([^"]+)"/u)?.[1];
     assert.ok(webSocketToken, "Vite client must carry its HMR WebSocket token");
 
-    const readiness = await request({
-      port: httpPort,
-      path: "/api/v1/readiness",
-      host: surfaceHost,
-    });
+    // Readiness answers 202 until startup finishes; /health is already 200 before that.
+    const readinessDeadline = Date.now() + 60_000;
+    let readiness;
+    do {
+      readiness = await request({
+        port: httpPort,
+        path: "/api/v1/readiness",
+        host: surfaceHost,
+      });
+      if (readiness.status === 200 || Date.now() >= readinessDeadline) break;
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    } while (true);
     assert.equal(readiness.status, 200);
     assert.equal(JSON.parse(readiness.body).schemaVersion, "pmh.startup-readiness.v1");
 

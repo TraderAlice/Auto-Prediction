@@ -2,6 +2,7 @@ import { hashCanonical, type Hash } from "@pmh/domain";
 import { accessSync, constants as fsConstants } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { resolve } from "node:path";
+import { createLogger } from "./logger.js";
 import {
   assertAgentRun,
   assertAgentRuntimeDefinition,
@@ -36,6 +37,7 @@ import { probeCodexAppServerAccount } from "./codex-app-server-transport.js";
 
 const IDENTIFIER_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._:/-]{0,159}$/u;
 const MAX_TOOL_CALLS_PER_TURN = 64;
+const probeLog = createLogger("agent-runtime-adapter.capability-probe");
 
 function installedRuntime(kind: AgentRuntimeKind): boolean {
   if (kind === "HARNESS_IN_PROCESS") return true;
@@ -437,6 +439,17 @@ export class AgentExecutionCapabilityService {
       diagnostic,
     });
     this.registry.saveBatch({ capabilityObservations: [observation] });
+    const probeFields = {
+      runtime: runtime.kind,
+      accessDriver: model.accessDriver,
+      probeKind,
+      outcome,
+    };
+    if (outcome === "USABLE") {
+      probeLog.info("capability probe finished", { ...probeFields, diagnostic });
+    } else {
+      probeLog.warn("capability probe finished", { ...probeFields, diagnostic });
+    }
     return this.project(profile, configuration);
   }
 

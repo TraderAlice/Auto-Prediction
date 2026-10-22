@@ -48,7 +48,8 @@ afterEach(async () => {
   ));
 });
 
-describe("Codex app-server JSONL process transport", () => {
+// The fake app-server is a POSIX shebang script, which Windows cannot execute with shell: false.
+describe.skipIf(process.platform === "win32")("Codex app-server JSONL process transport", () => {
   it("correlates out-of-order responses and carries notifications and server requests", async () => {
     const fixture = await fakeAppServer();
     const connection = await createCodexAppServerConnectionFactory({
